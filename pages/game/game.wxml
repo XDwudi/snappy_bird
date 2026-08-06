@@ -1,0 +1,54 @@
+<!-- pages/game/game.wxml - 游戏页面 -->
+<view class="game-container" bindtouchstart="onContainerTouch">
+  <!-- Canvas 游戏画布 -->
+  <canvas
+    type="2d"
+    id="gameCanvas"
+    class="game-canvas"
+  ></canvas>
+
+  <!-- 游戏中分数 -->
+  <view class="game-score" wx:if="{{showScore && gameState === 'playing'}}">
+    {{score}}
+  </view>
+
+  <!-- 准备态提示 -->
+  <view class="ready-overlay" wx:if="{{gameState === 'ready'}}">
+    <view class="ready-icon">👆</view>
+    <view class="ready-text">点击屏幕开始</view>
+    <view class="ready-sub">Tap to fly</view>
+  </view>
+
+  <!-- 游戏结束遮罩 -->
+  <view
+    class="gameover-overlay"
+    wx:if="{{gameState === 'gameover'}}"
+    catchtouchstart="preventTouch"
+  >
+    <view class="gameover-panel">
+      <view class="gameover-title">游戏结束</view>
+
+      <view class="new-record" wx:if="{{isNewRecord}}">
+        🎉 新纪录！
+      </view>
+
+      <view class="score-row">
+        <text class="score-label">本局得分</text>
+        <text class="score-value">{{finalScore}}</text>
+      </view>
+      <view class="score-row">
+        <text class="score-label">最高得分</text>
+        <text class="score-value best">{{bestScore}}</text>
+      </view>
+
+      <view class="gameover-buttons">
+        <view class="gameover-btn btn-primary" catchtap="onRestart">
+          🔄 再来一局
+        </view>
+        <view class="gameover-btn btn-secondary" catchtap="onBackHome">
+          🏠 返回首页
+        </view>
+      </view>
+    </view>
+  </view>
+</view>
