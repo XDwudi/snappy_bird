@@ -222,15 +222,21 @@ class Game {
     if (!this.running) return
     this.update()
     this.render()
-    this.rafId = this.canvas.requestAnimationFrame(() => {
-      this._tick()
-    })
+    if (typeof this.canvas.requestAnimationFrame === 'function') {
+      this.rafId = this.canvas.requestAnimationFrame(() => this._tick())
+    } else if (typeof requestAnimationFrame === 'function') {
+      this.rafId = requestAnimationFrame(() => this._tick())
+    }
   }
 
   destroy() {
     this.running = false
     if (this.rafId) {
-      this.canvas.cancelAnimationFrame(this.rafId)
+      if (typeof this.canvas.cancelAnimationFrame === 'function') {
+        this.canvas.cancelAnimationFrame(this.rafId)
+      } else if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this.rafId)
+      }
       this.rafId = null
     }
   }
@@ -633,6 +639,15 @@ class Game {
 
     // HUD 不受震动影响
     this._drawHUD()
+
+    // 状态覆盖层
+    if (this.state === Config.GAME.STATE.READY) {
+      this._drawReadyOverlay()
+    } else if (this.state === Config.GAME.STATE.UPGRADING) {
+      this._drawUpgradeOverlay()
+    } else if (this.state === Config.GAME.STATE.GAME_OVER) {
+      this._drawGameOverOverlay()
+    }
   }
 
   _drawBackground() {
@@ -703,6 +718,19 @@ class Game {
     const ctx = this.ctx
     const { VISUAL } = Config
 
+    // ----- 分数（游玩态大字显示） -----
+    if (this.state === Config.GAME.STATE.PLAYING) {
+      ctx.font = 'bold 36px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.lineWidth = 4
+      ctx.strokeStyle = '#000000'
+      ctx.fillStyle = '#ffffff'
+      const scoreY = this.screenH * 0.12
+      ctx.strokeText(this.score, this.screenW / 2, scoreY)
+      ctx.fillText(this.score, this.screenW / 2, scoreY)
+    }
+
     // ----- 顶部：经验条 -----
     const barW = this.screenW * 0.6
     const barH = 14
@@ -766,6 +794,313 @@ class Game {
         ctx.font = 'bold 9px monospace'
         ctx.fillText(`L${level}`, ix + iconSize / 2, iconY + iconSize - 4)
       }
+    }
+  }
+
+  // ==================== 触摸交互 ====================
+
+  /**
+   * 统一触摸处理（由入口层调用）
+   * @param {number} x - 触摸X（逻辑坐标）
+   * @param {number} y - 触摸Y（逻辑坐标）
+   */
+  handleTouch(x, y) {
+    if (this.state === Config.GAME.STATE.READY) {
+      this.flap()
+    } else if (this.state === Config.GAME.STATE.PLAYING) {
+      this.flap()
+    } else if (this.state === Config.GAME.STATE.UPGRADING) {
+      // 点击能力卡牌
+      if (this._cardBounds) {
+        for (const card of this._cardBounds) {
+          if (x >= card.x && x <= card.x + card.w &&
+              y >= card.y && y <= card.y + card.h) {
+            this.selectAbility(card.id)
+            return
+          }
+        }
+      }
+    } else if (this.state === Config.GAME.STATE.GAME_OVER) {
+      this.restart()
+    }
+  }
+
+  // ==================== 覆盖层渲染 ====================
+
+  _drawReadyOverlay() {
+    const ctx = this.ctx
+    const cx = this.screenW / 2
+
+    // 标题
+    ctx.font = 'bold 32px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 4
+    ctx.strokeStyle = '#000000'
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeText('SNAPPY BIRD', cx, this.screenH * 0.25)
+    ctx.fillText('SNAPPY BIRD', cx, this.screenH * 0.25)
+
+    // 副标题
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#333333'
+    ctx.fillText('Roguelike 飞行生存', cx, this.screenH * 0.25 + 30)
+
+    // 开始提示（闪烁）
+    const blink = Math.floor(this.frameCount / 30) % 2 === 0
+    if (blink) {
+      ctx.font = 'bold 18px monospace'
+      ctx.fillStyle = '#ffffff'
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 3
+      ctx.strokeText('点击屏幕开始', cx, this.screenH * 0.5)
+      ctx.fillText('点击屏幕开始', cx, this.screenH * 0.5)
+    }
+
+    // 最高分
+    if (this.bestScore > 0) {
+      ctx.font = '14px monospace'
+      ctx.fillStyle = '#333333'
+      ctx.fillText(`最高分: ${this.bestScore}`, cx, this.screenH * 0.58)
+    }
+
+    // 操作说明
+    ctx.font = '12px monospace'
+    ctx.fillStyle = '#555555'
+    ctx.fillText('点击拍翅 · 躲避管道 · 升级能力', cx, this.screenH * 0.72)
+    ctx.fillText('擦边通过获得额外奖励', cx, this.screenH * 0.72 + 20)
+  }
+
+  _drawUpgradeOverlay() {
+    const ctx = this.ctx
+    const cx = this.screenW / 2
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+    ctx.fillRect(0, 0, this.screenW, this.screenH)
+
+    // 标题
+    ctx.font = 'bold 24px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#ffd700'
+    ctx.fillText('升级!', cx, this.screenH * 0.15)
+
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(`Lv.${this.expSystem.level} — 选择能力`, cx, this.screenH * 0.15 + 28)
+
+    // 卡牌
+    const choices = this._currentChoices || []
+    if (choices.length === 0) return
+
+    const ownedList = this.abilitySystem.getOwnedList()
+    const n = choices.length
+    const gap = 10
+    const maxCardW = 130
+    const cardH = 180
+    const cardW = Math.min(maxCardW, (this.screenW - 40 - (n - 1) * gap) / n)
+    const startX = (this.screenW - (n * cardW + (n - 1) * gap)) / 2
+    const cardY = (this.screenH - cardH) / 2 + 10
+
+    this._cardBounds = []
+
+    for (let i = 0; i < n; i++) {
+      const ab = choices[i]
+      const currentLevel = ownedList.find(o => o.def.id === ab.id)?.level || 0
+      const cardX = startX + i * (cardW + gap)
+
+      this._cardBounds.push({ x: cardX, y: cardY, w: cardW, h: cardH, id: ab.id })
+      this._drawCard(cardX, cardY, cardW, cardH, ab, currentLevel)
+    }
+  }
+
+  _drawCard(x, y, w, h, def, currentLevel) {
+    const ctx = this.ctx
+
+    // 分类颜色
+    const catColors = {
+      passive: '#4a90d9',
+      active: '#d94a4a',
+      special: '#9b59b6'
+    }
+    const borderColor = catColors[def.category] || '#666666'
+
+    // 卡牌背景
+    ctx.fillStyle = 'rgba(30, 30, 40, 0.95)'
+    this._roundRect(x, y, w, h, 8)
+    ctx.fill()
+
+    // 卡牌边框
+    ctx.strokeStyle = borderColor
+    ctx.lineWidth = 3
+    this._roundRect(x, y, w, h, 8)
+    ctx.stroke()
+
+    const cx = x + w / 2
+
+    // 图标
+    ctx.font = '32px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(def.icon, cx, y + 35)
+
+    // 名称
+    ctx.font = 'bold 14px monospace'
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(def.name, cx, y + 70)
+
+    // 等级
+    ctx.font = '12px monospace'
+    ctx.fillStyle = '#ffd700'
+    const nextLevel = currentLevel + 1
+    if (currentLevel > 0) {
+      ctx.fillText(`Lv.${currentLevel} → Lv.${nextLevel}`, cx, y + 88)
+    } else {
+      ctx.fillText(`新能力! Lv.${nextLevel}`, cx, y + 88)
+    }
+
+    // 分类标签
+    const catNames = { passive: '被动', active: '主动', special: '特殊' }
+    ctx.font = '10px monospace'
+    ctx.fillStyle = borderColor
+    ctx.fillText(`[${catNames[def.category] || ''}]`, cx, y + 105)
+
+    // 效果文本（自动换行）
+    ctx.font = '11px monospace'
+    ctx.fillStyle = '#cccccc'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    const effectText = def.effectText(nextLevel)
+    this._wrapText(effectText, x + 8, y + 120, w - 16, 15)
+
+    // 恢复默认
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+  }
+
+  _drawGameOverOverlay() {
+    const ctx = this.ctx
+    const cx = this.screenW / 2
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+    ctx.fillRect(0, 0, this.screenW, this.screenH)
+
+    // 标题
+    ctx.font = 'bold 28px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#ff4444'
+    ctx.fillText('游戏结束', cx, this.screenH * 0.2)
+
+    // 分数
+    ctx.font = 'bold 36px monospace'
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(this.score, cx, this.screenH * 0.3)
+
+    ctx.font = '12px monospace'
+    ctx.fillStyle = '#888888'
+    ctx.fillText('本局得分', cx, this.screenH * 0.3 + 25)
+
+    // 最高分
+    const isNew = this.score > 0 && this.score >= this.bestScore
+    ctx.font = '14px monospace'
+    if (isNew) {
+      ctx.fillStyle = '#ffd700'
+      ctx.fillText(`新纪录! 最高分 ${this.bestScore}`, cx, this.screenH * 0.38)
+    } else {
+      ctx.fillStyle = '#aaaaaa'
+      ctx.fillText(`最高分: ${this.bestScore}`, cx, this.screenH * 0.38)
+    }
+
+    // 等级
+    ctx.font = '13px monospace'
+    ctx.fillStyle = '#4a90d9'
+    ctx.fillText(`达到等级 Lv.${this.expSystem.level}`, cx, this.screenH * 0.43)
+
+    // 已获得能力
+    const owned = this.abilitySystem.getOwnedList()
+    if (owned.length > 0) {
+      ctx.font = '12px monospace'
+      ctx.fillStyle = '#888888'
+      ctx.fillText('获得能力:', cx, this.screenH * 0.5)
+
+      const iconSize = 24
+      const iconGap = 6
+      const totalW = owned.length * (iconSize + iconGap) - iconGap
+      const startX = (this.screenW - totalW) / 2
+      const iconY = this.screenH * 0.54
+
+      for (let i = 0; i < owned.length; i++) {
+        const { def, level } = owned[i]
+        const ix = startX + i * (iconSize + iconGap)
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)'
+        ctx.beginPath()
+        ctx.arc(ix + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, Math.PI * 2)
+        ctx.fill()
+
+        ctx.font = '14px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(def.icon, ix + iconSize / 2, iconY + iconSize / 2 - 1)
+
+        ctx.font = 'bold 8px monospace'
+        ctx.fillStyle = '#ffd700'
+        ctx.fillText(`L${level}`, ix + iconSize / 2, iconY + iconSize - 3)
+      }
+    }
+
+    // 重启提示（闪烁）
+    const blink = Math.floor(this.frameCount / 30) % 2 === 0
+    if (blink) {
+      ctx.font = 'bold 16px monospace'
+      ctx.fillStyle = '#ffffff'
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 3
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.strokeText('点击重新开始', cx, this.screenH * 0.72)
+      ctx.fillText('点击重新开始', cx, this.screenH * 0.72)
+    }
+  }
+
+  // ==================== 工具方法 ====================
+
+  _roundRect(x, y, w, h, r) {
+    const ctx = this.ctx
+    ctx.beginPath()
+    ctx.moveTo(x + r, y)
+    ctx.lineTo(x + w - r, y)
+    ctx.arcTo(x + w, y, x + w, y + r, r)
+    ctx.lineTo(x + w, y + h - r)
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+    ctx.lineTo(x + r, y + h)
+    ctx.arcTo(x, y + h, x, y + h - r, r)
+    ctx.lineTo(x, y + r)
+    ctx.arcTo(x, y, x + r, y, r)
+    ctx.closePath()
+  }
+
+  _wrapText(text, x, y, maxWidth, lineHeight) {
+    const ctx = this.ctx
+    const chars = text.split('')
+    let line = ''
+    let curY = y
+
+    for (const ch of chars) {
+      const testLine = line + ch
+      if (ctx.measureText(testLine).width > maxWidth && line.length > 0) {
+        ctx.fillText(line, x, curY)
+        line = ch
+        curY += lineHeight
+      } else {
+        line = testLine
+      }
+    }
+    if (line) {
+      ctx.fillText(line, x, curY)
     }
   }
 }

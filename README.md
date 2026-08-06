@@ -1,67 +1,70 @@
 # Snappy Bird 🐦
 
-> Roguelike 飞行生存小游戏 · 微信小程序
+> Roguelike 飞行生存小游戏 · 微信小游戏
 
 ## 项目简介
 
-Snappy Bird 是一款融合 Flappy Bird 操控手感与 Vampire Survivors 式 roguelike 成长的小程序生存游戏。单指操作，越玩越强，每局都不一样。
+Snappy Bird 是一款融合 Flappy Bird 操控手感与 Vampire Survivors 式 roguelike 成长的小游戏。单指操作，越玩越强，每局都不一样。
 
 ## 技术栈
 
-- 微信原生小程序框架
-- Canvas 2D 渲染
+- **微信小游戏**（非小程序，纯 Canvas 渲染，无 WXML/WXSS）
+- Canvas 2D API
 - 基础库 ≥ 2.25.0
 
 ## 快速开始
 
 1. 打开 **微信开发者工具**
 2. 选择「导入项目」，项目目录指向本文件夹
-3. AppID 可选择「测试号」或填入自己的 AppID
-4. 点击确定即可预览运行
+3. **导入时选择「小游戏」**（不是「小程序」）
+4. AppID 可选择「测试号」或填入自己的小游戏 AppID
+5. 点击确定即可预览运行
 
 ## 目录结构
 
 ```
 Snappy_Bird/
-├── app.js                          # 小程序入口
-├── app.json                        # 全局配置
-├── app.wxss                        # 全局样式
-├── project.config.json             # 开发者工具配置
-├── sitemap.json                    # 索引配置
+├── game.js                        # 小游戏入口（初始化Canvas/触摸/游戏循环）
+├── game.json                      # 小游戏配置（屏幕方向/网络超时）
+├── project.config.json            # 开发者工具配置
 │
-├── docs/                           # 项目文档
-│   └── 开发方案_v1.0.0.md           # 完整开发方案
+├── docs/                          # 项目文档
+│   └── 开发方案_v1.0.0.md          # 完整开发方案
 │
-├── game/                           # 游戏引擎核心（纯JS，框架无关）
+├── game/                          # 游戏引擎核心（纯JS，框架无关）
 │   ├── config/
-│   │   ├── GameConfig.js           # 全局参数配置（策划调参入口）
-│   │   └── AbilityConfig.js        # 15个能力数据定义
+│   │   ├── GameConfig.js          # 全局参数配置（策划调参入口）
+│   │   └── AbilityConfig.js       # 15个能力数据定义
 │   ├── core/
-│   │   ├── Game.js                 # 游戏主类（主循环/状态机/渲染/HUD）
-│   │   ├── GameObject.js           # 实体基类
-│   │   ├── ObjectPool.js           # 对象池
-│   │   ├── EventBus.js             # 事件系统
-│   │   └── MathUtil.js             # 数学工具（碰撞/随机/插值）
+│   │   ├── Game.js                # 游戏主类（主循环/状态机/渲染/HUD/覆盖层）
+│   │   ├── GameObject.js          # 实体基类
+│   │   ├── ObjectPool.js          # 对象池
+│   │   ├── EventBus.js            # 事件系统
+│   │   └── MathUtil.js            # 数学工具（碰撞/随机/插值）
 │   ├── entities/
-│   │   ├── Bird.js                 # 小鸟（物理/动画/护盾渲染）
-│   │   ├── Pipe.js                 # 管道障碍（碰撞/渲染）
-│   │   └── Orb.js                  # 经验球（磁吸/拾取/渲染）
+│   │   ├── Bird.js                # 小鸟（物理/动画/护盾渲染）
+│   │   ├── Pipe.js                # 管道障碍（碰撞/渲染）
+│   │   └── Orb.js                 # 经验球（磁吸/拾取/渲染）
 │   ├── systems/
-│   │   ├── ExpSystem.js            # 经验与升级系统
-│   │   └── AbilitySystem.js        # 能力系统（属性计算/冷却/护盾/复活）
+│   │   ├── ExpSystem.js           # 经验与升级系统
+│   │   └── AbilitySystem.js       # 能力系统（属性计算/冷却/护盾/复活）
 │   └── abilities/
-│       └── AbilityRegistry.js      # 能力注册表（加权随机抽取）
-│
-├── pages/                          # 页面层（WXML + 微信API）
-│   ├── index/                      # 主界面
-│   └── game/                       # 游戏页面（Canvas + 升级面板 + HUD）
+│       └── AbilityRegistry.js     # 能力注册表（加权随机抽取）
 │
 ├── utils/
-│   └── Storage.js                  # 本地存档管理
+│   └── Storage.js                 # 本地存档管理
 │
 └── .workbuddy/
-    └── memory/                     # 项目记忆
+    └── memory/                    # 项目记忆
 ```
+
+## 架构说明
+
+本项目采用**微信小游戏模式**，所有 UI 均通过 Canvas 2D 渲染：
+
+- **入口** (`game.js`)：获取系统信息 → 创建 Canvas → 初始化 Game 实例 → 注册触摸事件 → 启动循环
+- **游戏主类** (`Game.js`)：管理状态机（准备 → 游玩 → 升级 → 结束），负责全部 Canvas 渲染（游戏画面 + HUD + 覆盖层）
+- **触摸交互**：`wx.onTouchStart` → `game.handleTouch(x, y)`，根据当前状态分发（拍翅/选能力/重启）
 
 ## 核心参数调优
 
@@ -92,8 +95,9 @@ Snappy_Bird/
 
 - [x] **迭代1**：核心飞行 + 管道碰撞（Flappy Bird 完整玩法）
 - [x] **迭代2**：经验系统 + Roguelike 能力系统（15能力 + 升级面板）
+- [x] **架构改造**：小程序 → 小游戏模式（WXML → 纯 Canvas UI）
 - [ ] **迭代3**：UI完善 + 难度曲线 + 全量测试
 
 ## 版本
 
-当前版本：v0.2.0 (MVP 迭代2)
+当前版本：v0.3.0 (小游戏架构改造)
