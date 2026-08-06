@@ -19,6 +19,45 @@
     <view class="ready-sub">Tap to fly</view>
   </view>
 
+  <!-- 升级选择面板 -->
+  <view
+    class="upgrade-overlay"
+    wx:if="{{gameState === 'upgrading'}}"
+    catchtouchstart="preventTouch"
+  >
+    <view class="upgrade-panel">
+      <view class="upgrade-title">
+        <text class="upgrade-arrow">⬆️</text>
+        <text class="upgrade-level">升级！ Lv.{{upgradeLevel}}</text>
+      </view>
+      <view class="upgrade-subtitle">选择一项能力强化</view>
+
+      <view class="upgrade-cards">
+        <view
+          class="ability-card {{ability.category}}"
+          wx:for="{{abilityChoices}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          data-index="{{index}}"
+          catchtap="onSelectAbility"
+        >
+          <view class="card-icon">{{item.icon}}</view>
+          <view class="card-name">{{item.name}}</view>
+          <view class="card-level">
+            <text class="card-level-from">Lv.{{item.currentLevel}}</text>
+            <text class="card-level-arrow">→</text>
+            <text class="card-level-to">Lv.{{item.currentLevel + 1}}</text>
+          </view>
+          <view class="card-desc">{{item.desc}}</view>
+          <view class="card-effect">{{item.effectText}}</view>
+          <view class="card-category {{item.category}}-tag">
+            {{item.category === 'passive' ? '被动' : item.category === 'active' ? '主动' : '特殊'}}
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
   <!-- 游戏结束遮罩 -->
   <view
     class="gameover-overlay"
@@ -39,6 +78,22 @@
       <view class="score-row">
         <text class="score-label">最高得分</text>
         <text class="score-value best">{{bestScore}}</text>
+      </view>
+      <view class="score-row" wx:if="{{finalLevel > 1}}">
+        <text class="score-label">最终等级</text>
+        <text class="score-value">Lv.{{finalLevel}}</text>
+      </view>
+
+      <!-- 已获得能力展示 -->
+      <view class="owned-abilities" wx:if="{{ownedAbilities.length > 0}}">
+        <view class="owned-abilities-title">本局能力</view>
+        <view class="owned-abilities-list">
+          <view class="owned-ability-item" wx:for="{{ownedAbilities}}" wx:key="id">
+            <text class="owned-ability-icon">{{item.icon}}</text>
+            <text class="owned-ability-name">{{item.name}}</text>
+            <text class="owned-ability-lv">Lv{{item.level}}</text>
+          </view>
+        </view>
       </view>
 
       <view class="gameover-buttons">

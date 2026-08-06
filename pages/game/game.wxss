@@ -16,10 +16,10 @@
 /* ==================== 游戏中分数 ==================== */
 .game-score {
   position: absolute;
-  top: 100rpx;
+  top: 60rpx;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 80rpx;
+  font-size: 72rpx;
   font-weight: bold;
   color: #fff;
   text-shadow: 4rpx 4rpx 0 #000, -2rpx -2rpx 0 #000, 2rpx -2rpx 0 #000, -2rpx 2rpx 0 #000;
@@ -64,6 +64,184 @@
   margin-top: 8rpx;
 }
 
+/* ==================== 升级选择面板 ==================== */
+.upgrade-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.upgrade-panel {
+  width: 680rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: panelSlideUp 0.3s ease-out;
+}
+
+@keyframes panelSlideUp {
+  0% { transform: translateY(400rpx); opacity: 0; }
+  60% { transform: translateY(-20rpx); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.upgrade-title {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
+
+.upgrade-arrow {
+  font-size: 48rpx;
+  animation: arrowBounce 0.8s ease-in-out infinite;
+}
+
+@keyframes arrowBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8rpx); }
+}
+
+.upgrade-level {
+  font-size: 48rpx;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 3rpx 3rpx 0 #000;
+}
+
+.upgrade-subtitle {
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 30rpx;
+}
+
+.upgrade-cards {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 16rpx;
+}
+
+/* 能力卡牌 */
+.ability-card {
+  flex-shrink: 0;
+  width: 200rpx;
+  background: linear-gradient(180deg, #fff 0%, #f0f0f0 100%);
+  border: 5rpx solid #000;
+  border-radius: 16rpx;
+  padding: 24rpx 16rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.4);
+  transition: all 0.15s;
+  animation: cardPop 0.4s ease-out backwards;
+}
+
+.ability-card:nth-child(1) { animation-delay: 0.05s; }
+.ability-card:nth-child(2) { animation-delay: 0.15s; }
+.ability-card:nth-child(3) { animation-delay: 0.25s; }
+.ability-card:nth-child(4) { animation-delay: 0.35s; }
+
+@keyframes cardPop {
+  0% { transform: scale(0.5) translateY(100rpx); opacity: 0; }
+  60% { transform: scale(1.08) translateY(-10rpx); }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.ability-card:active {
+  transform: scale(0.95);
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.4);
+}
+
+/* 分类边框色 */
+.ability-card.passive {
+  border-color: #4a90d9;
+}
+
+.ability-card.active {
+  border-color: #d94a4a;
+}
+
+.ability-card.special {
+  border-color: #9b59b6;
+}
+
+.card-icon {
+  font-size: 56rpx;
+  margin-bottom: 8rpx;
+}
+
+.card-name {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 6rpx;
+}
+
+.card-level {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  margin-bottom: 8rpx;
+}
+
+.card-level-from {
+  font-size: 22rpx;
+  color: #999;
+}
+
+.card-level-arrow {
+  font-size: 22rpx;
+  color: #666;
+}
+
+.card-level-to {
+  font-size: 26rpx;
+  font-weight: bold;
+  color: #d97706;
+}
+
+.card-desc {
+  font-size: 22rpx;
+  color: #666;
+  text-align: center;
+  margin-bottom: 4rpx;
+}
+
+.card-effect {
+  font-size: 20rpx;
+  color: #888;
+  text-align: center;
+  margin-bottom: 8rpx;
+}
+
+.card-category {
+  font-size: 18rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  color: #fff;
+}
+
+.passive-tag {
+  background: #4a90d9;
+}
+
+.active-tag {
+  background: #d94a4a;
+}
+
+.special-tag {
+  background: #9b59b6;
+}
+
 /* ==================== 游戏结束遮罩 ==================== */
 .gameover-overlay {
   position: absolute;
@@ -79,7 +257,7 @@
 }
 
 .gameover-panel {
-  width: 560rpx;
+  width: 580rpx;
   background: linear-gradient(180deg, #fff 0%, #f0f0f0 100%);
   border: 6rpx solid #000;
   border-radius: 20rpx;
@@ -139,6 +317,52 @@
 
 .score-value.best {
   color: #f0a020;
+}
+
+/* 已获得能力 */
+.owned-abilities {
+  width: 100%;
+  margin-top: 12rpx;
+  margin-bottom: 8rpx;
+}
+
+.owned-abilities-title {
+  font-size: 28rpx;
+  color: #999;
+  margin-bottom: 12rpx;
+  text-align: center;
+}
+
+.owned-abilities-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12rpx;
+}
+
+.owned-ability-item {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  background: #f5f5f5;
+  border: 2rpx solid #ddd;
+  border-radius: 8rpx;
+  padding: 6rpx 12rpx;
+}
+
+.owned-ability-icon {
+  font-size: 24rpx;
+}
+
+.owned-ability-name {
+  font-size: 22rpx;
+  color: #555;
+}
+
+.owned-ability-lv {
+  font-size: 20rpx;
+  color: #d97706;
+  font-weight: bold;
 }
 
 .gameover-buttons {

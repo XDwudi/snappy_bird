@@ -34,28 +34,27 @@ Snappy_Bird/
 │
 ├── game/                           # 游戏引擎核心（纯JS，框架无关）
 │   ├── config/
-│   │   └── GameConfig.js           # 全局参数配置（策划调参入口）
+│   │   ├── GameConfig.js           # 全局参数配置（策划调参入口）
+│   │   └── AbilityConfig.js        # 15个能力数据定义
 │   ├── core/
-│   │   ├── Game.js                 # 游戏主类（主循环/状态机/渲染）
+│   │   ├── Game.js                 # 游戏主类（主循环/状态机/渲染/HUD）
 │   │   ├── GameObject.js           # 实体基类
 │   │   ├── ObjectPool.js           # 对象池
 │   │   ├── EventBus.js             # 事件系统
 │   │   └── MathUtil.js             # 数学工具（碰撞/随机/插值）
-│   └── entities/
-│       ├── Bird.js                 # 小鸟（物理/动画/渲染）
-│       └── Pipe.js                 # 管道障碍（碰撞/渲染）
+│   ├── entities/
+│   │   ├── Bird.js                 # 小鸟（物理/动画/护盾渲染）
+│   │   ├── Pipe.js                 # 管道障碍（碰撞/渲染）
+│   │   └── Orb.js                  # 经验球（磁吸/拾取/渲染）
+│   ├── systems/
+│   │   ├── ExpSystem.js            # 经验与升级系统
+│   │   └── AbilitySystem.js        # 能力系统（属性计算/冷却/护盾/复活）
+│   └── abilities/
+│       └── AbilityRegistry.js      # 能力注册表（加权随机抽取）
 │
 ├── pages/                          # 页面层（WXML + 微信API）
 │   ├── index/                      # 主界面
-│   │   ├── index.wxml
-│   │   ├── index.wxss
-│   │   ├── index.js
-│   │   └── index.json
-│   └── game/                       # 游戏页面（Canvas 容器）
-│       ├── game.wxml
-│       ├── game.wxss
-│       ├── game.js
-│       └── game.json
+│   └── game/                       # 游戏页面（Canvas + 升级面板 + HUD）
 │
 ├── utils/
 │   └── Storage.js                  # 本地存档管理
@@ -76,13 +75,25 @@ Snappy_Bird/
 | 管道间隙 | PIPE.GAP | 180 | 值越小越难 |
 | 管道间隔 | PIPE.SPAWN_INTERVAL | 90 | 帧（90≈1.5秒） |
 | 滚动速度 | GAME.SCROLL_SPEED | 3.0 | 值越大越快 |
+| 基础经验 | EXP.BASE_EXP | 20 | Lv1→2 所需经验 |
+| 经验增量 | EXP.EXP_INCREMENT | 15 | 每级经验递增量 |
+
+## 能力系统
+
+共 15 个能力，分三大类：
+
+- **被动强化**（6个）：轻羽、顺风、灵巧、磁吸、贪婪、坚韧
+- **主动技能**（4个）：时间扭曲、瞬移闪避、护盾爆发、凤凰之翼
+- **特殊机制**（5个）：慢速世界、双倍积分、幸运光环、连击之心、缩小射线
+
+能力配置在 `game/config/AbilityConfig.js`，数值效果在 `game/systems/AbilitySystem.js` 的 `getStats()` 中计算。
 
 ## 开发里程碑
 
 - [x] **迭代1**：核心飞行 + 管道碰撞（Flappy Bird 完整玩法）
-- [ ] **迭代2**：经验系统 + Roguelike 能力系统
+- [x] **迭代2**：经验系统 + Roguelike 能力系统（15能力 + 升级面板）
 - [ ] **迭代3**：UI完善 + 难度曲线 + 全量测试
 
 ## 版本
 
-当前版本：v0.1.0 (MVP 迭代1)
+当前版本：v0.2.0 (MVP 迭代2)

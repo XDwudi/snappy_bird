@@ -2,6 +2,8 @@
  * Bird.js - 小鸟实体
  * 
  * 负责：物理运动（重力/拍翅）、旋转动画、翅膀动画、像素风格渲染。
+ * 物理参数（gravity/flapForce/maxFallSpeed）由 Game.js 通过属性注入，
+ * 支持能力系统动态修改。
  */
 
 const Config = require('../config/GameConfig.js')
@@ -27,15 +29,34 @@ class Bird {
     this.wingTimer = 0
     this.width = Config.BIRD.WIDTH
     this.height = Config.BIRD.HEIGHT
+
+    // 物理参数（可被能力系统修改）
+    this.gravity = Config.BIRD.GRAVITY
+    this.flapForce = Config.BIRD.FLAP_FORCE
+    this.maxFallSpeed = Config.BIRD.MAX_FALL_SPEED
+
+    // 碰撞箱缩放（可被灵巧能力修改）
+    this.collisionScale = 1.0
     this.collisionWidth = this.width * Config.BIRD.COLLISION_RATIO
     this.collisionHeight = this.height * Config.BIRD.COLLISION_RATIO
+
+    // 无敌闪烁
+    this.invincibleBlink = 0
+  }
+
+  /**
+   * 更新碰撞箱尺寸（灵巧能力改变时调用）
+   */
+  updateCollisionBox() {
+    this.collisionWidth = this.width * Config.BIRD.COLLISION_RATIO * this.collisionScale
+    this.collisionHeight = this.height * Config.BIRD.COLLISION_RATIO * this.collisionScale
   }
 
   /**
    * 拍翅——施加瞬间上升速度
    */
   flap() {
-    this.velocity = Config.BIRD.FLAP_FORCE
+    this.velocity = this.flapForce
     this.wingFrame = 0
     this.wingTimer = 0
   }
@@ -44,18 +65,17 @@ class Bird {
    * 物理更新（游玩态）
    */
   update() {
-    const { BIRD } = Config
-
     // 重力
-    this.velocity += BIRD.GRAVITY
-    if (this.velocity > BIRD.MAX_FALL_SPEED) {
-      this.velocity = BIRD.MAX_FALL_SPEED
+    this.velocity += this.gravity
+    if (this.velocity > this.maxFallSpeed) {
+      this.velocity = this.maxFallSpeed
     }
 
     // 位置更新
     this.y += this.velocity
 
     // 旋转：上升时朝上，下落时逐渐朝下
+    const { BIRD } = Config
     if (this.velocity < 0) {
       this.rotation = BIRD.ROTATION_UP
     } else {
@@ -67,6 +87,11 @@ class Bird {
     if (this.wingTimer >= BIRD.WING_ANIM_SPEED) {
       this.wingTimer = 0
       this.wingFrame = (this.wingFrame + 1) % 3
+    }
+
+    // 无敌闪烁计时
+    if (this.invincibleBlink > 0) {
+      this.invincibleBlink--
     }
   }
 
@@ -86,66 +111,87 @@ class Bird {
 
   /**
    * 渲染小鸟（像素风格）
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {boolean} showShield - 是否显示护盾
    */
-  render(ctx) {
+  render(ctx, showShield) {
     const { BIRD, VISUAL } = Config
 
-    ctx.save()
-    ctx.translate(this.x, this.y)
-    ctx.rotate(this.rotation)
+    // 无敌闪烁效果
+    if (this.invincibleBlink > 0 && Math.floor(this.invincibleBlink / 4) % 2 === 0) {
+      // 闪烁帧跳过渲染
+    } else {
+      ctx.save()
+      ctx.translate(this.x, this.y)
+      ctx.rotate(this.rotation)
 
-    const r = this.width / 2
+      const r = this.width / 2
 
-    // ---- 身体 ----
-    ctx.fillStyle = VISUAL.BIRD_BODY
-    ctx.beginPath()
-    ctx.arc(0, 0, r, 0, Math.PI * 2)
-    ctx.fill()
+      // ---- 身体 ----
+      ctx.fillStyle = VISUAL.BIRD_BODY
+      ctx.beginPath()
+      ctx.arc(0, 0, r, 0, Math.PI * 2)
+      ctx.fill()
 
-    // 身体描边
-    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-    ctx.lineWidth = 2
-    ctx.stroke()
+      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+      ctx.lineWidth = 2
+      ctx.stroke()
 
-    // ---- 翅膀 ----
-    const wingOffsets = [-5, 0, 5]
-    const wingY = wingOffsets[this.wingFrame]
-    ctx.fillStyle = VISUAL.BIRD_WING
-    ctx.beginPath()
-    ctx.ellipse(-5, wingY, 10, 7, 0, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-    ctx.lineWidth = 1.5
-    ctx.stroke()
+      // ---- 翅膀 ----
+      const wingOffsets = [-5, 0, 5]
+      const wingY = wingOffsets[this.wingFrame]
+      ctx.fillStyle = VISUAL.BIRD_WING
+      ctx.beginPath()
+      ctx.ellipse(-5, wingY, 10, 7, 0, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+      ctx.lineWidth = 1.5
+      ctx.stroke()
 
-    // ---- 眼睛 ----
-    ctx.fillStyle = VISUAL.BIRD_EYE
-    ctx.beginPath()
-    ctx.arc(8, -6, 5, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-    ctx.lineWidth = 1.5
-    ctx.stroke()
+      // ---- 眼睛 ----
+      ctx.fillStyle = VISUAL.BIRD_EYE
+      ctx.beginPath()
+      ctx.arc(8, -6, 5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+      ctx.lineWidth = 1.5
+      ctx.stroke()
 
-    // 瞳孔
-    ctx.fillStyle = VISUAL.BIRD_PUPIL
-    ctx.beginPath()
-    ctx.arc(10, -6, 2, 0, Math.PI * 2)
-    ctx.fill()
+      // 瞳孔
+      ctx.fillStyle = VISUAL.BIRD_PUPIL
+      ctx.beginPath()
+      ctx.arc(10, -6, 2, 0, Math.PI * 2)
+      ctx.fill()
 
-    // ---- 喙 ----
-    ctx.fillStyle = VISUAL.BIRD_BEAK
-    ctx.beginPath()
-    ctx.moveTo(12, 0)
-    ctx.lineTo(22, -2)
-    ctx.lineTo(12, 4)
-    ctx.closePath()
-    ctx.fill()
-    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-    ctx.lineWidth = 1.5
-    ctx.stroke()
+      // ---- 喙 ----
+      ctx.fillStyle = VISUAL.BIRD_BEAK
+      ctx.beginPath()
+      ctx.moveTo(12, 0)
+      ctx.lineTo(22, -2)
+      ctx.lineTo(12, 4)
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+      ctx.lineWidth = 1.5
+      ctx.stroke()
 
-    ctx.restore()
+      ctx.restore()
+    }
+
+    // 护盾光环
+    if (showShield) {
+      ctx.save()
+      ctx.translate(this.x, this.y)
+      const shieldR = this.width / 2 + 8 + Math.sin(Date.now() * 0.005) * 2
+      ctx.fillStyle = VISUAL.SHIELD_COLOR
+      ctx.beginPath()
+      ctx.arc(0, 0, shieldR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = VISUAL.SHIELD_OUTLINE
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.restore()
+    }
   }
 }
 

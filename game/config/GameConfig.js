@@ -50,6 +50,7 @@ module.exports = {
     STATE: {
       READY: 'ready',
       PLAYING: 'playing',
+      UPGRADING: 'upgrading',
       GAME_OVER: 'gameover'
     }
   },
@@ -72,7 +73,55 @@ module.exports = {
     BIRD_BEAK: '#f58a1f',
     BIRD_EYE: '#ffffff',
     BIRD_PUPIL: '#000000',
-    BIRD_OUTLINE: '#000000'
+    BIRD_OUTLINE: '#000000',
+    ORB_GLOW: '#ffd700',
+    ORB_OUTER: 'rgba(255, 215, 0, 0.3)',
+    ORB_CORE: '#fff8dc',
+    SHIELD_COLOR: 'rgba(100, 200, 255, 0.4)',
+    SHIELD_OUTLINE: 'rgba(100, 200, 255, 0.8)',
+    NEAR_MISS_COLOR: 'rgba(255, 215, 0, 0.6)',
+    EXP_BAR_BG: 'rgba(0, 0, 0, 0.4)',
+    EXP_BAR_FILL: '#ffd700',
+    EXP_BAR_TEXT: '#ffffff',
+    ABILITY_ICON_BG: 'rgba(0, 0, 0, 0.3)'
+  },
+
+  // ==================== 经验系统 ====================
+  EXP: {
+    BASE_EXP: 20,          // Lv1→2 所需经验
+    EXP_INCREMENT: 15,     // 每级经验增量
+    PIPE_PASS_EXP: 5,      // 通过管道经验
+    ORB_EXP: 10,           // 拾取经验球经验
+    NEAR_MISS_EXP: 15,     // 擦边奖励经验
+    NEAR_MISS_DISTANCE: 15,// 擦边判定距离(px)
+    ORB_SPAWN_CHANCE: 0.7, // 通过管道时生成经验球的概率
+    SCORE_PER_ORB: 2,      // 拾取经验球额外得分
+    SCORE_NEAR_MISS: 3,    // 擦边额外得分
+    SCORE_SURVIVAL_INTERVAL: 300 // 存活时间得分间隔(帧)，300=5s
+  },
+
+  // ==================== 经验球参数 ====================
+  ORB: {
+    RADIUS: 8,             // 经验球半径
+    BASE_SPEED: 3.0,       // 基础移动速度（跟随世界滚动）
+    ATTRACT_RANGE: 60,     // 基础磁吸范围
+    ATTRACT_FORCE: 0.8,    // 磁吸力强度
+    GLOW_COLOR: '#ffd700', // 经验球颜色（金色）
+    GLOW_OUTER: 'rgba(255, 215, 0, 0.3)',
+    PULSE_SPEED: 0.1       // 脉冲动画速度
+  },
+
+  // ==================== 能力系统 ====================
+  ABILITY: {
+    CATEGORY: {
+      PASSIVE: 'passive',
+      ACTIVE: 'active',
+      SPECIAL: 'special'
+    },
+    CHOICE_COUNT: 3,       // 默认可选数量
+    WEIGHT_NEW: 3,         // 未拥有能力权重
+    WEIGHT_OWNED: 2,       // 已拥有可升级权重
+    MAX_ALL_BUFF_LEVEL: 10 // 全属性加成最大等级
   },
 
   // ==================== 云朵参数 ====================
