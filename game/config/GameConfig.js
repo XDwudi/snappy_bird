@@ -52,7 +52,11 @@ module.exports = {
       PLAYING: 'playing',
       UPGRADING: 'upgrading',
       GAME_OVER: 'gameover'
-    }
+    },
+
+    // [v1.1.0] 安全区适配
+    SAFE_AREA_TOP: 12,       // 无safeArea时的默认顶部偏移
+    SAFE_AREA_BOTTOM: 8      // 无safeArea时的默认底部偏移
   },
 
   // ==================== 视觉参数 ====================
@@ -88,8 +92,8 @@ module.exports = {
 
   // ==================== 经验系统 ====================
   EXP: {
-    BASE_EXP: 20,          // Lv1→2 所需经验
-    EXP_INCREMENT: 15,     // 每级经验增量
+    BASE_EXP: 18,          // [v1.1.0] 20→18 前期更快
+    EXP_INCREMENT: 12,     // [v1.1.0] 15→12 曲线更平缓
     PIPE_PASS_EXP: 5,      // 通过管道经验
     ORB_EXP: 10,           // 拾取经验球经验
     NEAR_MISS_EXP: 15,     // 擦边奖励经验
@@ -98,6 +102,47 @@ module.exports = {
     SCORE_PER_ORB: 2,      // 拾取经验球额外得分
     SCORE_NEAR_MISS: 3,    // 擦边额外得分
     SCORE_SURVIVAL_INTERVAL: 300 // 存活时间得分间隔(帧)，300=5s
+  },
+
+  // ==================== [v1.1.0] HP血条系统 ====================
+  HP: {
+    INITIAL: 2,            // 初始HP
+    INITIAL_MAX: 2,        // 初始最大HP
+    COLLISION_DAMAGE: 1,   // 每次碰撞伤害
+    INVINCIBLE_FRAMES: 60, // 受击后无敌帧数(1s)
+    HEART_SIZE: 14,        // 心形图标大小
+    HEART_GAP: 4           // 心形间距
+  },
+
+  // ==================== [v1.1.0] 道具系统 ====================
+  ITEM: {
+    SPAWN_CHANCE: 0.25,    // 通过管道时生成道具概率
+    RADIUS: 10,            // 道具半径
+    BASE_SPEED: 3.0,       // 基础移动速度
+    ATTRACT_FORCE: 0.8,    // 磁吸力强度(与经验球一致)
+
+    // 道具类型概率
+    TYPE_WEIGHTS: {
+      exp_pack: 40,        // 经验包
+      health_pack: 20,     // 血包
+      shield_pack: 25,     // 护盾包
+      speed_pack: 15       // 速度包
+    },
+
+    // 道具效果参数
+    EXP_PACK_MIN: 15,      // 经验包最小经验
+    EXP_PACK_MAX: 30,      // 经验包最大经验
+    SHIELD_DURATION: 300,  // 护盾包持续时间(5s=300帧)
+    SPEED_PACK_DURATION: 180, // 速度包减速持续时间(3s=180帧)
+    SPEED_PACK_SLOWDOWN: 0.5, // 速度包减速比例
+
+    // 道具颜色
+    COLORS: {
+      exp_pack: '#9b59b6',
+      health_pack: '#e74c3c',
+      shield_pack: '#3498db',
+      speed_pack: '#1abc9c'
+    }
   },
 
   // ==================== 经验球参数 ====================

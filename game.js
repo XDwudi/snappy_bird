@@ -15,6 +15,9 @@ const screenWidth = systemInfo.screenWidth
 const screenHeight = systemInfo.screenHeight
 const pixelRatio = systemInfo.pixelRatio
 
+// [v1.1.0] 获取安全区域（适配刘海屏/全面屏）
+const safeArea = systemInfo.safeArea || null
+
 // ===== 创建主画布 =====
 const canvas = wx.createCanvas()
 const ctx = canvas.getContext('2d')
@@ -24,8 +27,8 @@ canvas.width = screenWidth * pixelRatio
 canvas.height = screenHeight * pixelRatio
 ctx.scale(pixelRatio, pixelRatio)
 
-// ===== 创建游戏实例 =====
-const game = new Game(canvas, ctx, screenWidth, screenHeight)
+// ===== 创建游戏实例（传入安全区） =====
+const game = new Game(canvas, ctx, screenWidth, screenHeight, safeArea)
 game.bestScore = Storage.getBestScore()
 
 // ===== 回调设置 =====

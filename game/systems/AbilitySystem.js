@@ -1,11 +1,13 @@
 /**
- * AbilitySystem.js - 能力系统核心
+ * AbilitySystem.js - 能力系统核心 [v1.1.0]
  *
  * 职责：
- * - 管理当前已拥有的能力（id → level）
+ * - 管理已拥有的能力（id → level）
  * - 提供计算后的属性修饰器给 Game.js 读取
- * - 管理主动技能冷却计时
- * - 护盾/复活/无敌等状态管理
+ * - 管理 HP / 最大HP / 受击无敌 / 护盾 / 复活
+ * - 管理主动技能冷却（时间扭曲/瞬移/护盾爆发/自愈/弹力护甲/二段跳）
+ * - 管理道具效果状态（道具护盾/速度包减速）
+ * - 连击系统 / 经验共鸣 / 狂暴
  */
 
 const Config = require('../config/GameConfig.js')
@@ -21,57 +23,59 @@ class AbilitySystem {
    */
   reset() {
     this.owned = new Map()          // id → level
-    this.level = 1                   // 玩家等级
 
-    // 护盾系统
-    this.shields = 0                 // 当前护盾数
-    this.shieldRecoverTimer = 0      // 护盾恢复计时器（帧）
-    this.maxShields = 0              // 最大护盾上限（由坚韧能力决定）
+    // [v1.1.0] HP系统
+    this.hp = Config.HP.INITIAL
+    this.maxHp = Config.HP.INITIAL_MAX
 
-    // 主动技能冷却（帧数，0=可用）
+    // 护盾系统（坚韧能力 + 道具护盾包）
+    this.shields = 0                // 坚韧护盾数
+    this.shieldRecoverTimer = 0
+    this.maxShields = 0
+    this.itemShieldFrames = 0       // [v1.1.0] 道具护盾剩余帧
+
+    // 主动技能冷却
     this.timeWarpCD = 0
     this.teleportCD = 0
-    this.shieldBurstTimer = 0        // 护盾爆发计时器
+    this.shieldBurstTimer = 0
+    this.regenerationTimer = 0      // [v1.1.0] 自愈计时器
+    this.bounceArmorCD = 0          // [v1.1.0] 弹力护甲CD
+    this.doubleJumpCD = 0           // [v1.1.0] 二段跳CD
+    this.lastFlapFrame = -999       // [v1.1.0] 上次拍翅帧（二段跳检测）
 
     // 主动技能状态
-    this.timeWarpActive = 0          // 时间扭曲剩余帧
-    this.phoenixUsed = false         // 凤凰是否已用
+    this.timeWarpActive = 0
+    this.phoenixUsed = 0            // [v1.1.0] 改为计数（Lv2可复活2次）
 
     // 连击系统
-    this.comboCount = 0              // 连续通过管道数
-    this.invincibleFrames = 0        // 无敌剩余帧
+    this.comboCount = 0
+    this.invincibleFrames = 0
 
-    // 全属性加成（所有能力满级后触发）
+    // [v1.1.0] 道具效果状态
+    this.speedPackFrames = 0        // 速度包减速剩余帧
+
+    // 全属性加成
     this.allBuffLevel = 0
+
+    // 缓存
+    this._statsCache = null
   }
 
   // ==================== 能力选择 ====================
 
-  /**
-   * 升级时获取可选能力列表
-   * @returns {Object[]} 能力定义数组
-   */
   getChoices() {
     let count = Config.ABILITY.CHOICE_COUNT + this.getStat('bonusChoices')
 
-    // 检查是否所有能力都已满级
     const allMaxed = Registry.getAll().every(ab => {
       const lv = this.owned.get(ab.id) || 0
       return lv >= ab.maxLevel
     })
 
-    if (allMaxed) {
-      // 全满级 → 返回空数组，由调用方处理为全属性加成
-      return []
-    }
+    if (allMaxed) return []
 
     return Registry.rollChoices(this.owned, count)
   }
 
-  /**
-   * 选择一个能力（升级）
-   * @param {string} id - 能力ID
-   */
   selectAbility(id) {
     const def = Registry.get(id)
     if (!def) return
@@ -81,9 +85,9 @@ class AbilitySystem {
 
     this.owned.set(id, currentLevel + 1)
 
-    // 坚韧能力 → 增加护盾上限
+    // 坚韧 → 增加护盾上限
     if (id === 'toughness') {
-      this.maxShields = (this.owned.get('toughness') || 0)
+      this.maxShields = this.owned.get('toughness')
       this.shields = Math.min(this.shields + 1, this.maxShields)
     }
 
@@ -92,27 +96,30 @@ class AbilitySystem {
       this.shieldBurstTimer = this._getShieldBurstCD()
     }
 
-    // 凤凰 → 标记可用
+    // [v1.1.0] 活力之心 → 提升最大HP
+    if (id === 'vitality') {
+      const vitLv = this.owned.get('vitality')
+      this.maxHp = Config.HP.INITIAL_MAX + vitLv
+      this.hp = Math.min(this.hp + 1, this.maxHp)  // 选择时恢复1HP
+    }
+
+    // [v1.1.0] 自愈 → 初始化计时器
+    if (id === 'regeneration') {
+      this.regenerationTimer = this._getRegenerationCD()
+    }
+
+    // 凤凰 → 重置使用次数
     if (id === 'phoenix') {
-      this.phoenixUsed = false
+      this.phoenixUsed = 0
     }
   }
 
-  /**
-   * 全属性加成（所有能力满级时）
-   */
   selectAllBuff() {
     this.allBuffLevel = Math.min(this.allBuffLevel + 1, Config.ABILITY.MAX_ALL_BUFF_LEVEL)
   }
 
   // ==================== 属性计算 ====================
 
-  /**
-   * 获取某个计算属性值
-   * 这是一个便捷方法，内部调用 getStats() 缓存
-   * @param {string} key
-   * @returns {number|boolean}
-   */
   getStat(key) {
     if (!this._statsCache) {
       this._statsCache = this.getStats()
@@ -120,10 +127,6 @@ class AbilitySystem {
     return this._statsCache[key]
   }
 
-  /**
-   * 根据已拥有的能力计算全部属性修饰器
-   * 每帧调用前需要 invalidateStats()
-   */
   getStats() {
     const s = {
       gravityMultiplier: 1.0,
@@ -137,74 +140,101 @@ class AbilitySystem {
       comboThreshold: 5,
       gapBonus: 0,
 
-      // 主动技能 CD（0 = 未拥有）
+      // 主动技能
       hasTimeWarp: false,
       hasTeleport: false,
       hasShieldBurst: false,
       hasPhoenix: false,
+
+      // [v1.1.0] 新增属性
+      maxHpBonus: 0,
+      invincibleBonus: 0,
+      hasRegeneration: false,
+      hasBounceArmor: false,
+      hasDoubleJump: false,
+      expResonanceChance: 0,
+      berserkMultiplier: 1.0,
     }
 
     const lv = (id) => this.owned.get(id) || 0
     const allBuff = this.allBuffLevel
     const buffMul = 1 + 0.05 * allBuff
 
+    // [v1.1.0] 狂暴：HP为1时全属性提升
+    const berserkLv = lv('berserk')
+    const berserkMul = (this.hp <= 1 && berserkLv > 0) ? (1 + 0.25 * berserkLv) : 1.0
+    s.berserkMultiplier = berserkMul
+
     // 轻羽: 重力 -8%/级
-    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul
+    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul * berserkMul
 
     // 顺风: 上升力 +10%/级
-    s.flapForceMultiplier = (1 + 0.10 * lv('tailwind')) * buffMul
+    s.flapForceMultiplier = (1 + 0.10 * lv('tailwind')) * buffMul * berserkMul
 
     // 灵巧: 碰撞箱 -12%/级
     s.collisionScale = Math.max(0.3, 1 - 0.12 * lv('agile'))
 
-    // 磁吸: 经验球吸引范围 +50px/级
+    // 磁吸: 吸引范围 +50px/级
     s.orbAttractRange = Config.ORB.ATTRACT_RANGE + 50 * lv('magnet')
 
     // 贪婪: 经验获取 +25%/级
-    s.expMultiplier = (1 + 0.25 * lv('greed')) * buffMul
+    s.expMultiplier = (1 + 0.25 * lv('greed')) * buffMul * berserkMul
 
     // 慢速世界: 障碍速度 -10%/级
     s.scrollSpeedMultiplier = Math.max(0.5, 1 - 0.10 * lv('slow_world'))
 
-    // 双倍积分: 管道得分 ×(1+级)
-    s.scoreMultiplier = (1 + lv('double_score')) * buffMul
+    // 双倍积分
+    s.scoreMultiplier = Math.round((1 + lv('double_score')) * buffMul * berserkMul)
 
-    // 幸运光环: 选项 +1/级
+    // 幸运光环
     s.bonusChoices = lv('lucky')
 
-    // 连击之心: 阈值 -2/级
-    s.comboThreshold = 5 - 2 * lv('combo_heart')
+    // 连击之心
+    s.comboThreshold = Math.max(1, 5 - 2 * lv('combo_heart'))
 
-    // 缩小射线: 间隙 +15px/级
+    // 缩小射线
     s.gapBonus = 15 * lv('shrink_ray')
+
+    // [v1.1.0] 活力之心: 最大HP +1/级
+    s.maxHpBonus = lv('vitality')
+
+    // [v1.1.0] 体魄: 受击无敌 +30帧/级
+    s.invincibleBonus = 30 * lv('physique')
+
+    // [v1.1.0] 经验共鸣: 20%/级概率双倍经验球
+    s.expResonanceChance = 0.2 * lv('exp_resonance')
 
     // 主动技能
     s.hasTimeWarp = lv('time_warp') > 0
     s.hasTeleport = lv('teleport') > 0
     s.hasShieldBurst = lv('shield_burst') > 0
-    s.hasPhoenix = lv('phoenix') > 0 && !this.phoenixUsed
+    s.hasPhoenix = lv('phoenix') > 0 && this.phoenixUsed < lv('phoenix')
+
+    // [v1.1.0] 新增主动技能
+    s.hasRegeneration = lv('regeneration') > 0
+    s.hasBounceArmor = lv('bounce_armor') > 0
+    s.hasDoubleJump = lv('double_jump') > 0
 
     return s
   }
 
-  /**
-   * 清除属性缓存（能力变化后调用）
-   */
   invalidateStats() {
     this._statsCache = null
   }
 
-  // ==================== 主动技能 CD ====================
+  // ==================== 每帧更新 ====================
 
-  /**
-   * 每帧更新冷却计时
-   */
   tickCooldowns() {
     if (this.timeWarpCD > 0) this.timeWarpCD--
     if (this.teleportCD > 0) this.teleportCD--
     if (this.timeWarpActive > 0) this.timeWarpActive--
+    if (this.bounceArmorCD > 0) this.bounceArmorCD--
+    if (this.doubleJumpCD > 0) this.doubleJumpCD--
+    if (this.invincibleFrames > 0) this.invincibleFrames--
+    if (this.itemShieldFrames > 0) this.itemShieldFrames--
+    if (this.speedPackFrames > 0) this.speedPackFrames--
 
-    // 护盾爆发计时
+    // 护盾爆发
     if (this.hasStat('hasShieldBurst')) {
       this.shieldBurstTimer--
       if (this.shieldBurstTimer <= 0) {
@@ -216,45 +246,91 @@ class AbilitySystem {
     // 护盾恢复（坚韧能力）
     if (this.maxShields > 0 && this.shields < this.maxShields) {
       this.shieldRecoverTimer++
-      if (this.shieldRecoverTimer >= 1800) { // 30s = 1800帧
+      if (this.shieldRecoverTimer >= 1800) {
         this.shields = Math.min(this.shields + 1, this.maxShields)
         this.shieldRecoverTimer = 0
       }
     }
 
-    // 无敌帧
-    if (this.invincibleFrames > 0) this.invincibleFrames--
+    // [v1.1.0] 自愈
+    if (this.hasStat('hasRegeneration') && this.hp < this.maxHp) {
+      this.regenerationTimer--
+      if (this.regenerationTimer <= 0) {
+        this.hp = Math.min(this.hp + 1, this.maxHp)
+        this.regenerationTimer = this._getRegenerationCD()
+      }
+    }
   }
 
-  /**
-   * 时间扭曲 CD（秒→帧）
-   */
+  // ==================== CD 计算 ====================
+
   _getTimeWarpCD() {
     const lv = this.owned.get('time_warp') || 0
     return (20 - 3 * (lv - 1)) * 60
   }
 
-  /**
-   * 瞬移 CD
-   */
   _getTeleportCD() {
     const lv = this.owned.get('teleport') || 0
     return (30 - 5 * (lv - 1)) * 60
   }
 
-  /**
-   * 护盾爆发 CD
-   */
   _getShieldBurstCD() {
     const lv = this.owned.get('shield_burst') || 0
     return (25 - 3 * (lv - 1)) * 60
   }
 
+  // [v1.1.0] 自愈CD
+  _getRegenerationCD() {
+    const lv = this.owned.get('regeneration') || 0
+    return (30 - 5 * (lv - 1)) * 60
+  }
+
+  // [v1.1.0] 弹力护甲CD
+  _getBounceArmorCD() {
+    const lv = this.owned.get('bounce_armor') || 0
+    return (20 - 3 * (lv - 1)) * 60
+  }
+
+  // [v1.1.0] 二段跳CD
+  _getDoubleJumpCD() {
+    const lv = this.owned.get('double_jump') || 0
+    return (15 - 5 * (lv - 1)) * 60
+  }
+
+  // ==================== HP 系统 [v1.1.0] ====================
+
+  /**
+   * 受到伤害
+   * @returns {boolean} true=死亡, false=存活
+   */
+  takeDamage() {
+    this.hp -= Config.HP.COLLISION_DAMAGE
+    this.resetCombo()
+    if (this.hp <= 0) {
+      return true  // 死亡
+    }
+    return false
+  }
+
+  /**
+   * 恢复HP
+   */
+  healHP(amount) {
+    this.hp = Math.min(this.hp + amount, this.maxHp)
+  }
+
+  /**
+   * 获取受击无敌帧数（含体魄加成）
+   */
+  getInvincibleFrames() {
+    return Config.HP.INVINCIBLE_FRAMES + this.getStat('invincibleBonus')
+  }
+
   // ==================== 护盾系统 ====================
 
   /**
-   * 消耗一层护盾
-   * @returns {boolean} 是否成功消耗
+   * 消耗一层护盾（坚韧护盾优先于道具护盾）
+   * @returns {boolean}
    */
   consumeShield() {
     if (this.shields > 0) {
@@ -262,68 +338,109 @@ class AbilitySystem {
       this.shieldRecoverTimer = 0
       return true
     }
+    if (this.itemShieldFrames > 0) {
+      this.itemShieldFrames = 0
+      return true
+    }
     return false
   }
 
   /**
-   * 当前是否有护盾或无敌
+   * [v1.1.0] 添加道具护盾
    */
+  addItemShield(frames) {
+    this.itemShieldFrames = frames
+  }
+
   hasProtection() {
-    return this.shields > 0 || this.invincibleFrames > 0 || this.timeWarpActive > 0
+    return this.shields > 0 || this.itemShieldFrames > 0 ||
+           this.invincibleFrames > 0 || this.timeWarpActive > 0
   }
 
   // ==================== 连击系统 ====================
 
-  /**
-   * 通过管道时调用
-   */
   onPipePass() {
     this.comboCount++
     if (this.comboCount >= this.getStat('comboThreshold')) {
-      this.invincibleFrames = 300 // 5s = 300帧
+      this.invincibleFrames = 300
       this.comboCount = 0
     }
   }
 
-  /**
-   * 碰撞时重置连击
-   */
   resetCombo() {
     this.comboCount = 0
   }
 
   // ==================== 主动技能触发 ====================
 
-  /**
-   * 尝试触发时间扭曲（即将碰撞时）
-   * @returns {boolean} 是否触发
-   */
   tryTimeWarp() {
     if (!this.getStat('hasTimeWarp') || this.timeWarpCD > 0) return false
     this.timeWarpCD = this._getTimeWarpCD()
-    this.timeWarpActive = 60 // 1s = 60帧
+    this.timeWarpActive = 60
     return true
   }
 
-  /**
-   * 尝试触发瞬移闪避
-   * @returns {boolean} 是否触发
-   */
   tryTeleport() {
     if (!this.getStat('hasTeleport') || this.teleportCD > 0) return false
     this.teleportCD = this._getTeleportCD()
     return true
   }
 
-  /**
-   * 尝试使用凤凰复活
-   * @returns {boolean} 是否触发
-   */
   tryPhoenix() {
     if (!this.getStat('hasPhoenix')) return false
-    this.phoenixUsed = true
+    this.phoenixUsed++
+    this.hp = this.maxHp  // 恢复满HP
     this.invalidateStats()
     return true
+  }
+
+  // [v1.1.0] 弹力护甲
+  tryBounceArmor() {
+    if (!this.getStat('hasBounceArmor') || this.bounceArmorCD > 0) return false
+    this.bounceArmorCD = this._getBounceArmorCD()
+    return true
+  }
+
+  // [v1.1.0] 二段跳检测
+  /**
+   * 检查是否触发二段跳
+   * @param {number} currentFrame - 当前帧
+   * @returns {boolean}
+   */
+  tryDoubleJump(currentFrame) {
+    if (!this.getStat('hasDoubleJump') || this.doubleJumpCD > 0) return false
+    // 上次拍翅在8帧内（约133ms），触发二段跳
+    if (currentFrame - this.lastFlapFrame <= 8 && currentFrame - this.lastFlapFrame >= 2) {
+      this.doubleJumpCD = this._getDoubleJumpCD()
+      this.lastFlapFrame = -999
+      return true
+    }
+    this.lastFlapFrame = currentFrame
+    return false
+  }
+
+  // ==================== 道具效果 [v1.1.0] ====================
+
+  /**
+   * 激活速度包减速
+   */
+  setSpeedPack(frames) {
+    this.speedPackFrames = frames
+  }
+
+  /**
+   * 获取速度包减速倍率
+   */
+  getSpeedPackMultiplier() {
+    return this.speedPackFrames > 0 ? Config.ITEM.SPEED_PACK_SLOWDOWN : 1.0
+  }
+
+  /**
+   * 检查经验共鸣是否触发（每次拾取经验球时调用）
+   */
+  checkExpResonance() {
+    const chance = this.getStat('expResonanceChance')
+    return chance > 0 && Math.random() < chance
   }
 
   // ==================== 工具 ====================
@@ -335,10 +452,6 @@ class AbilitySystem {
     return !!this._statsCache[key]
   }
 
-  /**
-   * 获取已拥有能力列表（供UI显示）
-   * @returns {Array<{def: Object, level: number}>}
-   */
   getOwnedList() {
     const list = []
     for (const [id, level] of this.owned) {

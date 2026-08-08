@@ -1,8 +1,8 @@
 /**
- * AbilityConfig.js - 能力数据配置
+ * AbilityConfig.js - 能力数据配置 [v1.1.0]
  *
- * 定义全部15个能力的静态数据：名称、图标、描述、分类、最大等级、效果文本。
- * 实际数值效果在 AbilitySystem.getStats() 中计算。
+ * 共22个能力：被动8 + 主动7 + 特殊7
+ * v1.1.0变更：提升15个旧能力等级上限 + 新增6个能力
  */
 
 const ABILITY = require('./GameConfig.js').ABILITY
@@ -19,14 +19,14 @@ const ABILITY = require('./GameConfig.js').ABILITY
  */
 
 const Abilities = [
-  // ==================== 被动强化类 (6) ====================
+  // ==================== 被动强化类 (8) ====================
   {
     id: 'light_feather',
     name: '轻羽',
     icon: '🪶',
     desc: '降低重力',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `重力 -${8 * lv}%`
   },
   {
@@ -35,7 +35,7 @@ const Abilities = [
     icon: '🌬️',
     desc: '提升上升力',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `上升力 +${10 * lv}%`
   },
   {
@@ -44,16 +44,16 @@ const Abilities = [
     icon: '✨',
     desc: '缩小碰撞箱',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `碰撞箱 -${12 * lv}%`
   },
   {
     id: 'magnet',
     name: '磁吸',
     icon: '🧲',
-    desc: '扩大经验球吸引范围',
+    desc: '扩大经验球/道具吸引范围',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `吸引范围 +${50 * lv}px`
   },
   {
@@ -62,27 +62,47 @@ const Abilities = [
     icon: '💰',
     desc: '增加经验获取',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `经验获取 +${25 * lv}%`
   },
   {
     id: 'toughness',
     name: '坚韧',
     icon: '❤️',
-    desc: '获得护盾，破盾后恢复',
+    desc: '获得护盾，破盾后30s恢复',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 2,
+    maxLevel: 3,  // [v1.1.0] 2→3
     effectText: (lv) => `护盾 ${lv}层，30s恢复`
   },
+  // [v1.1.0新增]
+  {
+    id: 'vitality',
+    name: '活力之心',
+    icon: '💗',
+    desc: '提升最大HP',
+    category: ABILITY.CATEGORY.PASSIVE,
+    maxLevel: 2,
+    effectText: (lv) => `最大HP +${lv}（上限${2 + lv}）`
+  },
+  // [v1.1.0新增]
+  {
+    id: 'physique',
+    name: '体魄',
+    icon: '🫀',
+    desc: '延长受击无敌时间',
+    category: ABILITY.CATEGORY.PASSIVE,
+    maxLevel: 3,
+    effectText: (lv) => `受击无敌 +${lv * 0.5}s`
+  },
 
-  // ==================== 主动技能类 (4) ====================
+  // ==================== 主动技能类 (7) ====================
   {
     id: 'time_warp',
     name: '时间扭曲',
     icon: '⏳',
     desc: '即将碰撞时自动减速',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `减速50%，CD ${20 - 3 * (lv - 1)}s`
   },
   {
@@ -91,7 +111,7 @@ const Abilities = [
     icon: '💫',
     desc: '即将碰撞时自动瞬移',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 2,
+    maxLevel: 3,  // [v1.1.0] 2→3
     effectText: (lv) => `瞬移至间隙，CD ${30 - 5 * (lv - 1)}s`
   },
   {
@@ -100,7 +120,7 @@ const Abilities = [
     icon: '🛡️',
     desc: '定期自动获得护盾',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `每${25 - 3 * (lv - 1)}s获得1层护盾`
   },
   {
@@ -109,18 +129,48 @@ const Abilities = [
     icon: '🔥',
     desc: '死亡时原地复活',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 1,
-    effectText: () => `复活1次，保留所有能力`
+    maxLevel: 2,  // [v1.1.0] 1→2
+    effectText: (lv) => `复活${lv}次，恢复满HP`
+  },
+  // [v1.1.0新增]
+  {
+    id: 'regeneration',
+    name: '自愈',
+    icon: '🌿',
+    desc: '定期恢复HP',
+    category: ABILITY.CATEGORY.ACTIVE,
+    maxLevel: 3,
+    effectText: (lv) => `每${30 - 5 * (lv - 1)}s恢复1HP`
+  },
+  // [v1.1.0新增]
+  {
+    id: 'bounce_armor',
+    name: '弹力护甲',
+    icon: '🌀',
+    desc: '碰撞时弹开免伤',
+    category: ABILITY.CATEGORY.ACTIVE,
+    maxLevel: 3,
+    effectText: (lv) => `弹开免伤，CD ${20 - 3 * (lv - 1)}s`
+  },
+  // [v1.1.0新增]
+  {
+    id: 'double_jump',
+    name: '二段跳',
+    icon: '⏫',
+    desc: '快速双击触发额外上升',
+    category: ABILITY.CATEGORY.ACTIVE,
+    maxLevel: 2,
+    effectText: (lv) => `二段跳，CD ${15 - 5 * (lv - 1)}s`
   },
 
-  // ==================== 特殊机制类 (5) ====================
+  // ==================== 特殊机制类 (7) ====================
   {
     id: 'slow_world',
     name: '慢速世界',
     icon: '🐌',
     desc: '降低障碍物速度',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `障碍速度 -${10 * lv}%`
   },
   {
@@ -129,7 +179,7 @@ const Abilities = [
     icon: '📊',
     desc: '通过管道得分翻倍',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `管道得分 ×${1 + lv}`
   },
   {
@@ -138,7 +188,7 @@ const Abilities = [
     icon: '🍀',
     desc: '升级时增加能力选项',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 2,
+    maxLevel: 3,  // [v1.1.0] 2→3
     effectText: (lv) => `升级选项 +${lv}（共${3 + lv}选1）`
   },
   {
@@ -147,7 +197,7 @@ const Abilities = [
     icon: '⚡',
     desc: '连续通过管道获得无敌',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 2,
+    maxLevel: 3,  // [v1.1.0] 2→3
     effectText: (lv) => `连过${5 - 2 * (lv - 1)}管道，5s无敌`
   },
   {
@@ -156,8 +206,28 @@ const Abilities = [
     icon: '📐',
     desc: '扩大障碍物间隙',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 3,
+    maxLevel: 5,  // [v1.1.0] 3→5
     effectText: (lv) => `管道间隙 +${15 * lv}px`
+  },
+  // [v1.1.0新增]
+  {
+    id: 'exp_resonance',
+    name: '经验共鸣',
+    icon: '🔮',
+    desc: '拾取经验球概率双倍',
+    category: ABILITY.CATEGORY.SPECIAL,
+    maxLevel: 3,
+    effectText: (lv) => `${20 * lv}%概率经验球双倍`
+  },
+  // [v1.1.0新增]
+  {
+    id: 'berserk',
+    name: '狂暴',
+    icon: '😤',
+    desc: 'HP为1时全属性提升',
+    category: ABILITY.CATEGORY.SPECIAL,
+    maxLevel: 3,
+    effectText: (lv) => `HP=1时，全属性 +${25 * lv}%`
   }
 ]
 
