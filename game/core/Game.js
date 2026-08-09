@@ -1,5 +1,5 @@
 /**
- * Game.js - 游戏主类 [v1.1.4]
+ * Game.js - 游戏主类 [v1.1.5]
  *
  * 职责：游戏主循环、状态机管理、实体协调、碰撞检测、渲染调度。
  * 集成经验系统、能力系统、经验球、道具系统、HP血条、擦边判定。
@@ -8,6 +8,7 @@
  * [v1.1.2] 优化：系统日志(GameLogger)、弹力护甲平衡修复(有限次数+弹开不传送)、连击之心平衡修复。
  * [v1.1.3] 优化：经验球改为直接获取+文字提示、经验日志、道具前方生成、稀有度概率系统。
  * [v1.1.4] 优化：经验系统统一化(管道经验5→10,删除经验球经验,经验共鸣全经验生效)、浮动文字堆叠渐隐、擦边特效增强(多环+粒子+闪光)、道具图标视觉区分。
+ * [v1.1.5] 优化：统一护盾系统(层数机制+视觉区分+弹力护甲改造为弹力护盾)、擦边触发优化(每帧检查+距离25px)、缩小射线间隙增大+管道缩回动画。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -330,8 +331,17 @@ class Game {
       }
 
       if (pipe.checkCollision(this.bird)) {
-        if (this._handleCollision()) return
+        if (this._handleCollision(pipe)) return
         continue
+      }
+
+      // [v1.1.5] 擦边检测：每帧检查（小鸟在管道x范围内时），不再只在通过后检查
+      if (!pipe.nearMissTriggered) {
+        const birdRight = this.bird.x + this.bird.collisionWidth / 2
+        const birdLeft = this.bird.x - this.bird.collisionWidth / 2
+        if (birdRight > pipe.x && birdLeft < pipe.x + pipe.width) {
+          this._checkNearMiss(pipe)
+        }
       }
 
       if (!pipe.passed && pipe.x + pipe.width < this.bird.x - this.bird.collisionWidth / 2) {
@@ -492,12 +502,19 @@ class Game {
   // ==================== 管道生成 ====================
 
   _spawnPipe() {
-    const gap = this._getGapSize()
+    const stats = this.abilitySystem.getStats()
+    const gapBonus = stats.gapBonus
+    // [v1.1.5] 管道以基础间隙生成，动画缩回至最终间隙(baseGap + gapBonus)
+    const finalGap = this._getGapSize()  // 含 gapBonus 的最终间隙
+    const baseGap = finalGap - gapBonus   // 不含 gapBonus 的基础间隙
     const groundY = this.screenH - Config.GROUND.HEIGHT
     const minTop = Config.PIPE.MIN_TOP
-    const maxTop = groundY - gap - Config.PIPE.MIN_BOTTOM
+    const maxTop = groundY - finalGap - Config.PIPE.MIN_BOTTOM
     const topHeight = minTop + Math.random() * (maxTop - minTop)
-    this.pipes.push(new Pipe(this.screenW + 10, topHeight, gap, groundY))
+    // 以基础间隙生成，shrinkBonus 驱动缩回动画
+    const pipe = new Pipe(this.screenW + 10, topHeight, baseGap, groundY)
+    pipe.shrinkBonus = gapBonus
+    this.pipes.push(pipe)
   }
 
   // [v1.1.1] 随机道具刷新（不依赖管道通过）
@@ -541,9 +558,6 @@ class Game {
       const itemType = this._rollItemType()
       this.items.push(new Item(itemX, itemY, itemType))
     }
-
-    // 擦边检测
-    this._checkNearMiss(pipe)
   }
 
   // [v1.1.0] 道具类型随机
@@ -561,6 +575,7 @@ class Game {
     return types[0]
   }
 
+  // [v1.1.5] 擦边检测：每帧检查（小鸟在管道x范围内时），距离增大25px，防重复触发
   _checkNearMiss(pipe) {
     const birdTop = this.bird.y - this.bird.collisionHeight / 2
     const birdBottom = this.bird.y + this.bird.collisionHeight / 2
@@ -569,6 +584,7 @@ class Game {
     const minDist = Math.min(distToTopPipe, distToBottomPipe)
 
     if (minDist < Config.EXP.NEAR_MISS_DISTANCE && minDist > 0) {
+      pipe.nearMissTriggered = true  // [v1.1.5] 防止同一管道重复触发
       const stats = this.abilitySystem.getStats()
       this._gainExp(Config.EXP.NEAR_MISS_EXP, 'near_miss', stats)
       this.score += Config.EXP.SCORE_NEAR_MISS
@@ -673,8 +689,9 @@ class Game {
         break
       }
       case 'shield_pack': {
-        this.abilitySystem.addItemShield(Config.ITEM.SHIELD_DURATION)
-        this._addFloatingText(this.bird.x, this.bird.y - 30, '护盾!', '#3498db', 50)
+        // [v1.1.5] 统一护盾：添加1层护盾（不超过最大层数）
+        this.abilitySystem.addShieldLayer(1)
+        this._addFloatingText(this.bird.x, this.bird.y - 30, '护盾+1!', '#3498db', 50)
         break
       }
       case 'speed_pack': {
@@ -711,11 +728,13 @@ class Game {
   // ==================== 碰撞处理 [v1.1.0] HP系统 ====================
 
   /**
-   * 碰撞事件处理：无敌 > 时间扭曲 > 弹力护甲 > 护盾 > 扣血 > 凤凰 > 死亡
-   * [v1.1.2] 弹力护甲改为弹开（不再传送），有限次数
+   * 碰撞事件处理：无敌 > 时间扭曲 > 统一护盾(弹力护盾优先) > 扣血 > 凤凰 > 死亡
+   * [v1.1.5] 统一护盾系统：shieldLayers > 0时消耗一层，
+   *           若拥有弹力护盾则弹开，否则仅抵挡。
+   * @param {Object} [pipe] - 碰撞的管道对象（用于判断弹开方向），地面/天花板碰撞时不传
    * @returns {boolean} true=游戏结束, false=继续
    */
-  _handleCollision() {
+  _handleCollision(pipe) {
     // 无敌状态
     if (this.abilitySystem.invincibleFrames > 0) {
       Logger.debug('Collision', '无敌中，忽略碰撞', { invincibleFrames: this.abilitySystem.invincibleFrames })
@@ -730,36 +749,45 @@ class Game {
       return false
     }
 
-    // [v1.1.2] 弹力护甲——弹开小鸟，不传送
-    if (this.abilitySystem.tryBounceArmor()) {
-      // [v1.1.2] 根据位置判断弹开方向：天花板向下，其他向上
-      const groundY = this.screenH - Config.GROUND.HEIGHT
-      if (this.bird.y < this.screenH * 0.12) {
-        // 靠近天花板——向下弹
-        this.bird.velocity = Math.abs(this.bird.flapForce) * 0.4
-      } else {
-        // 地面或管道——向上弹
-        this.bird.velocity = this.bird.flapForce * 0.6
-      }
-      this.bird.invincibleBlink = 20
-      this.abilitySystem.invincibleFrames = 20
-      this.shakeFrames = 4
-      this.shakeIntensity = 2
-      this._addFloatingText(this.bird.x, this.bird.y - 25, '弹开!', '#3498db', 35)
-      Logger.info('Collision', '弹力护甲弹开', {
-        charges: this.abilitySystem.bounceArmorCharges,
-        velocity: this.bird.velocity
-      })
-      return false
-    }
+    // [v1.1.5] 统一护盾——消耗一层护盾
+    if (this.abilitySystem.shieldLayers > 0) {
+      const hasBounceShield = (this.abilitySystem.owned.get('bounce_shield') || 0) > 0
+      this.abilitySystem.consumeShield()
 
-    // 护盾（坚韧护盾 + 道具护盾）
-    if (this.abilitySystem.consumeShield()) {
-      Logger.info('Collision', '护盾抵挡')
-      this.bird.invincibleBlink = 30
-      this.abilitySystem.invincibleFrames = 60
-      this.shakeFrames = 6
-      this.shakeIntensity = 3
+      if (hasBounceShield) {
+        // [v1.1.5] 弹力护盾——向碰撞反方向弹出
+        if (pipe) {
+          // 管道碰撞：根据小鸟在管道间隙中的位置判断弹开方向
+          const gapCenter = pipe.topHeight + pipe.gap / 2
+          if (this.bird.y < gapCenter) {
+            // 小鸟偏上——向下弹
+            this.bird.velocity = Math.abs(this.bird.flapForce) * Config.SHIELD.BOUNCE_VEL_DOWN
+          } else {
+            // 小鸟偏下——向上弹
+            this.bird.velocity = this.bird.flapForce * Config.SHIELD.BOUNCE_VEL_UP
+          }
+        } else {
+          // 地面/天花板碰撞
+          if (this.bird.y < this.screenH * 0.12) {
+            this.bird.velocity = Math.abs(this.bird.flapForce) * Config.SHIELD.BOUNCE_VEL_DOWN
+          } else {
+            this.bird.velocity = this.bird.flapForce * Config.SHIELD.BOUNCE_VEL_UP
+          }
+        }
+        this.bird.invincibleBlink = 20
+        this.abilitySystem.invincibleFrames = 20
+        this.shakeFrames = 4
+        this.shakeIntensity = 2
+        this._addFloatingText(this.bird.x, this.bird.y - 25, '弹开!', '#3498db', 35)
+        Logger.info('Collision', '弹力护盾弹开', { shieldLayers: this.abilitySystem.shieldLayers })
+      } else {
+        // 普通护盾抵挡
+        this.bird.invincibleBlink = 30
+        this.abilitySystem.invincibleFrames = 60
+        this.shakeFrames = 6
+        this.shakeIntensity = 3
+        Logger.info('Collision', '护盾抵挡', { shieldLayers: this.abilitySystem.shieldLayers })
+      }
       return false
     }
 
@@ -878,9 +906,9 @@ class Game {
     // [v1.1.1] 能力光环特效（磁吸/狂暴/时间扭曲）
     this._drawAbilityAuras()
 
-    // 小鸟（含护盾显示）
-    const showShield = this.abilitySystem.shields > 0 || this.abilitySystem.itemShieldFrames > 0
-    this.bird.render(ctx, showShield)
+    // [v1.1.5] 统一护盾：传递护盾层数给Bird渲染
+    const shieldLayers = this.abilitySystem.shieldLayers
+    this.bird.render(ctx, shieldLayers)
 
     this._drawGround()
     ctx.restore()

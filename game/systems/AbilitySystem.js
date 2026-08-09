@@ -1,12 +1,13 @@
 /**
- * AbilitySystem.js - 能力系统核心 [v1.1.3]
+ * AbilitySystem.js - 能力系统核心 [v1.1.5]
  *
  * 职责：
  * - 管理已拥有的能力（id → level）
  * - 提供计算后的属性修饰器给 Game.js 读取
- * - 管理 HP / 最大HP / 受击无敌 / 护盾 / 复活
- * - 管理主动技能冷却（时间扭曲/瞬移/护盾爆发/自愈/弹力护甲/二段跳）
- * - 管理道具效果状态（道具护盾/速度包减速）
+ * - 管理 HP / 最大HP / 受击无敌
+ * - [v1.1.5] 统一护盾系统：shieldLayers(当前层数) / maxShieldLayers(最大层数)
+ * - 管理主动技能冷却（时间扭曲/瞬移/护盾爆发/自愈/弹力护盾/二段跳）
+ * - 管理道具效果状态（速度包减速）
  * - 连击系统 / 经验共鸣 / 狂暴
  */
 
@@ -29,19 +30,17 @@ class AbilitySystem {
     this.hp = Config.HP.INITIAL
     this.maxHp = Config.HP.INITIAL_MAX
 
-    // 护盾系统（坚韧能力 + 道具护盾包）
-    this.shields = 0                // 坚韧护盾数
-    this.shieldRecoverTimer = 0
-    this.maxShields = 0
-    this.itemShieldFrames = 0       // [v1.1.0] 道具护盾剩余帧
+    // [v1.1.5] 统一护盾系统
+    this.shieldLayers = 0                    // 当前护盾层数
+    this.maxShieldLayers = Config.SHIELD.DEFAULT_MAX_LAYERS  // 最大护盾层数(默认1)
+    this.shieldRecoverTimer = 0              // 坚韧护盾恢复计时器
+    this.bounceShieldRecoverTimer = 0        // 弹力护盾恢复计时器
 
     // 主动技能冷却
     this.timeWarpCD = 0
     this.teleportCD = 0
     this.shieldBurstTimer = 0
     this.regenerationTimer = 0      // [v1.1.0] 自愈计时器
-    this.bounceArmorCD = 0          // [v1.1.0] 弹力护甲CD
-    this.bounceArmorCharges = 0     // [v1.1.2] 弹力护甲剩余次数
     this.doubleJumpCD = 0           // [v1.1.0] 二段跳CD
     this.lastFlapFrame = -999       // [v1.1.0] 上次拍翅帧（二段跳检测）
 
@@ -92,10 +91,11 @@ class AbilitySystem {
 
     this.owned.set(id, currentLevel + 1)
 
-    // 坚韧 → 增加护盾上限
+    // [v1.1.5] 坚韧 → 最大护盾+1/级，获得1层护盾
     if (id === 'toughness') {
-      this.maxShields = this.owned.get('toughness')
-      this.shields = Math.min(this.shields + 1, this.maxShields)
+      this._recalcMaxShieldLayers()
+      this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
+      Logger.info('Ability', '坚韧升级', { level: this.owned.get('toughness'), maxShield: this.maxShieldLayers, layers: this.shieldLayers })
     }
 
     // 护盾爆发 → 初始化计时器
@@ -117,12 +117,15 @@ class AbilitySystem {
       Logger.info('Ability', '自愈升级', { level: this.owned.get('regeneration') })
     }
 
-    // [v1.1.2] 弹力护甲 → 初始化充能次数
-    if (id === 'bounce_armor') {
-      this.bounceArmorCharges = this._getBounceArmorMaxCharges()
-      Logger.info('Ability', '弹力护甲升级', {
-        level: this.owned.get('bounce_armor'),
-        charges: this.bounceArmorCharges
+    // [v1.1.5] 弹力护盾 → 最大护盾+1/级，获得1层护盾，初始化恢复计时器
+    if (id === 'bounce_shield') {
+      this._recalcMaxShieldLayers()
+      this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
+      this.bounceShieldRecoverTimer = 0
+      Logger.info('Ability', '弹力护盾升级', {
+        level: this.owned.get('bounce_shield'),
+        maxShield: this.maxShieldLayers,
+        layers: this.shieldLayers
       })
     }
 
@@ -168,10 +171,10 @@ class AbilitySystem {
       maxHpBonus: 0,
       invincibleBonus: 0,
       hasRegeneration: false,
-      hasBounceArmor: false,
       hasDoubleJump: false,
       expResonanceChance: 0,
       berserkMultiplier: 1.0,
+      hasBounceShield: false,  // [v1.1.5] 弹力护盾
     }
 
     const lv = (id) => this.owned.get(id) || 0
@@ -210,8 +213,8 @@ class AbilitySystem {
     // 连击之心 [v1.1.2] 平衡调整：阈值 min=2，避免每管触发永久无敌
     s.comboThreshold = Math.max(2, 5 - lv('combo_heart'))
 
-    // 缩小射线
-    s.gapBonus = 15 * lv('shrink_ray')
+    // 缩小射线 [v1.1.5] 间隙增大 15→20/级
+    s.gapBonus = 20 * lv('shrink_ray')
 
     // [v1.1.0] 活力之心: 最大HP +1/级
     s.maxHpBonus = lv('vitality')
@@ -230,8 +233,8 @@ class AbilitySystem {
 
     // [v1.1.0] 新增主动技能
     s.hasRegeneration = lv('regeneration') > 0
-    // [v1.1.2] 弹力护甲需要有剩余次数
-    s.hasBounceArmor = lv('bounce_armor') > 0 && this.bounceArmorCharges > 0
+    // [v1.1.5] 弹力护盾（统一护盾系统，不再有独立充能）
+    s.hasBounceShield = lv('bounce_shield') > 0
     s.hasDoubleJump = lv('double_jump') > 0
 
     return s
@@ -247,27 +250,40 @@ class AbilitySystem {
     if (this.timeWarpCD > 0) this.timeWarpCD--
     if (this.teleportCD > 0) this.teleportCD--
     if (this.timeWarpActive > 0) this.timeWarpActive--
-    if (this.bounceArmorCD > 0) this.bounceArmorCD--
     if (this.doubleJumpCD > 0) this.doubleJumpCD--
     if (this.invincibleFrames > 0) this.invincibleFrames--
-    if (this.itemShieldFrames > 0) this.itemShieldFrames--
     if (this.speedPackFrames > 0) this.speedPackFrames--
 
-    // 护盾爆发
+    // [v1.1.5] 护盾爆发——定期获得1层护盾
     if (this.hasStat('hasShieldBurst')) {
       this.shieldBurstTimer--
       if (this.shieldBurstTimer <= 0) {
-        this.shields = Math.min(this.shields + 1, Math.max(this.maxShields, 1))
+        this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
         this.shieldBurstTimer = this._getShieldBurstCD()
+        Logger.info('Shield', '护盾爆发获得护盾', { layers: this.shieldLayers, max: this.maxShieldLayers })
       }
     }
 
-    // 护盾恢复（坚韧能力）
-    if (this.maxShields > 0 && this.shields < this.maxShields) {
+    // [v1.1.5] 坚韧护盾恢复（30s恢复1层）
+    const toughnessLv = this.owned.get('toughness') || 0
+    if (toughnessLv > 0 && this.shieldLayers < this.maxShieldLayers) {
       this.shieldRecoverTimer++
-      if (this.shieldRecoverTimer >= 1800) {
-        this.shields = Math.min(this.shields + 1, this.maxShields)
+      if (this.shieldRecoverTimer >= Config.SHIELD.TOUGHNESS_RECOVER_CD) {
+        this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
         this.shieldRecoverTimer = 0
+        Logger.info('Shield', '坚韧护盾恢复', { layers: this.shieldLayers, max: this.maxShieldLayers })
+      }
+    }
+
+    // [v1.1.5] 弹力护盾恢复（20s-5s/级恢复1层）
+    const bounceShieldLv = this.owned.get('bounce_shield') || 0
+    if (bounceShieldLv > 0 && this.shieldLayers < this.maxShieldLayers) {
+      this.bounceShieldRecoverTimer++
+      const cd = this._getBounceShieldRecoverCD()
+      if (this.bounceShieldRecoverTimer >= cd) {
+        this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
+        this.bounceShieldRecoverTimer = 0
+        Logger.info('Shield', '弹力护盾恢复', { layers: this.shieldLayers, max: this.maxShieldLayers })
       }
     }
 
@@ -306,16 +322,22 @@ class AbilitySystem {
     return (30 - 5 * (lv - 1)) * 60
   }
 
-  // [v1.1.0] 弹力护甲CD
-  _getBounceArmorCD() {
-    const lv = this.owned.get('bounce_armor') || 0
-    return (30 - 5 * (lv - 1)) * 60  // [v1.1.2] CD加长: Lv1=30s, Lv2=25s, Lv3=20s
+  // [v1.1.5] 弹力护盾恢复CD（秒转帧）
+  _getBounceShieldRecoverCD() {
+    const lv = this.owned.get('bounce_shield') || 0
+    const cdSec = Math.max(
+      Config.SHIELD.BOUNCE_RECOVER_MIN,
+      Config.SHIELD.BOUNCE_RECOVER_BASE - Config.SHIELD.BOUNCE_RECOVER_REDUCTION * (lv - 1)
+    )
+    return cdSec * 60  // Lv1=20s=1200帧, Lv2=15s=900帧, Lv3=10s=600帧
   }
 
-  // [v1.1.2] 弹力护甲最大充能次数
-  _getBounceArmorMaxCharges() {
-    const lv = this.owned.get('bounce_armor') || 0
-    return 1 + lv  // Lv1=2次, Lv2=3次, Lv3=4次
+  // [v1.1.5] 重新计算最大护盾层数 = 默认1 + 坚韧等级 + 弹力护盾等级
+  _recalcMaxShieldLayers() {
+    const toughnessLv = this.owned.get('toughness') || 0
+    const bounceShieldLv = this.owned.get('bounce_shield') || 0
+    this.maxShieldLayers = Config.SHIELD.DEFAULT_MAX_LAYERS + toughnessLv + bounceShieldLv
+    this.shieldLayers = Math.min(this.shieldLayers, this.maxShieldLayers)
   }
 
   // [v1.1.0] 二段跳CD
@@ -358,36 +380,34 @@ class AbilitySystem {
     return Config.HP.INVINCIBLE_FRAMES + this.getStat('invincibleBonus')
   }
 
-  // ==================== 护盾系统 ====================
+  // ==================== [v1.1.5] 统一护盾系统 ====================
 
   /**
-   * 消耗一层护盾（坚韧护盾优先于道具护盾）
+   * 消耗一层护盾
    * @returns {boolean}
    */
   consumeShield() {
-    if (this.shields > 0) {
-      this.shields--
+    if (this.shieldLayers > 0) {
+      this.shieldLayers--
       this.shieldRecoverTimer = 0
-      Logger.info('Shield', '坚韧护盾消耗', { remaining: this.shields })
-      return true
-    }
-    if (this.itemShieldFrames > 0) {
-      this.itemShieldFrames = 0
-      Logger.info('Shield', '道具护盾消耗')
+      this.bounceShieldRecoverTimer = 0
+      Logger.info('Shield', '护盾消耗', { remaining: this.shieldLayers, max: this.maxShieldLayers })
       return true
     }
     return false
   }
 
   /**
-   * [v1.1.0] 添加道具护盾
+   * [v1.1.5] 添加护盾层（道具拾取/护盾爆发等），不超过最大层数
    */
-  addItemShield(frames) {
-    this.itemShieldFrames = frames
+  addShieldLayer(amount) {
+    const before = this.shieldLayers
+    this.shieldLayers = Math.min(this.shieldLayers + amount, this.maxShieldLayers)
+    Logger.info('Shield', '获得护盾层', { before, after: this.shieldLayers, max: this.maxShieldLayers })
   }
 
   hasProtection() {
-    return this.shields > 0 || this.itemShieldFrames > 0 ||
+    return this.shieldLayers > 0 ||
            this.invincibleFrames > 0 || this.timeWarpActive > 0
   }
 
@@ -430,19 +450,6 @@ class AbilitySystem {
     this.hp = this.maxHp  // 恢复满HP
     this.invalidateStats()
     Logger.info('Ability', '凤凰复活触发', { phoenixUsed: this.phoenixUsed, hp: this.hp })
-    return true
-  }
-
-  // [v1.1.2] 弹力护甲——有限次数，消耗充能
-  tryBounceArmor() {
-    if (!this.getStat('hasBounceArmor') || this.bounceArmorCD > 0) return false
-    this.bounceArmorCD = this._getBounceArmorCD()
-    this.bounceArmorCharges--
-    Logger.info('Ability', '弹力护甲触发', {
-      remainingCharges: this.bounceArmorCharges,
-      cd: this.bounceArmorCD
-    })
-    this.invalidateStats()  // [v1.1.2] 充能耗尽后更新hasBounceArmor
     return true
   }
 

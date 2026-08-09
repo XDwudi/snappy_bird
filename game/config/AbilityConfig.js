@@ -76,11 +76,11 @@ const Abilities = [
     id: 'toughness',
     name: '坚韧',
     icon: '❤️',
-    desc: '获得护盾，破盾后30s恢复',
+    desc: '最大护盾+1/级，破盾后30s恢复',
     category: ABILITY.CATEGORY.PASSIVE,
     rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
-    effectText: (lv) => `护盾 ${lv}层，30s恢复`
+    effectText: (lv) => `最大护盾+${lv}，30s恢复1层`
   },
   // [v1.1.0新增]
   {
@@ -130,7 +130,7 @@ const Abilities = [
     id: 'shield_burst',
     name: '护盾爆发',
     icon: '🛡️',
-    desc: '定期自动获得护盾',
+    desc: '定期自动获得护盾层',
     category: ABILITY.CATEGORY.ACTIVE,
     rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 5,
@@ -157,16 +157,16 @@ const Abilities = [
     maxLevel: 3,
     effectText: (lv) => `每${30 - 5 * (lv - 1)}s恢复1HP`
   },
-  // [v1.1.0新增] [v1.1.2平衡调整]
+  // [v1.1.0新增] [v1.1.2平衡调整] [v1.1.5改造为弹力护盾]
   {
-    id: 'bounce_armor',
-    name: '弹力护甲',
+    id: 'bounce_shield',
+    name: '弹力护盾',
     icon: '🌀',
-    desc: '碰撞时弹开免伤（有限次数）',
+    desc: '最大护盾+1/级，碰撞弹开免伤',
     category: ABILITY.CATEGORY.ACTIVE,
     rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
-    effectText: (lv) => `弹开免伤${1 + lv}次，CD ${30 - 5 * (lv - 1)}s`
+    effectText: (lv) => `最大护盾+${lv}，${20 - 5 * (lv - 1)}s恢复1层，碰撞弹开`
   },
   // [v1.1.0新增]
   {
@@ -232,7 +232,7 @@ const Abilities = [
     category: ABILITY.CATEGORY.SPECIAL,
     rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 5,
-    effectText: (lv) => `管道间隙 +${15 * lv}px`
+    effectText: (lv) => `管道间隙 +${20 * lv}px`
   },
   // [v1.1.0新增]
   {

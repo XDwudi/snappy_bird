@@ -121,9 +121,9 @@ class Bird {
   /**
    * 渲染小鸟（像素风格）
    * @param {CanvasRenderingContext2D} ctx
-   * @param {boolean} showShield - 是否显示护盾
+   * @param {number} shieldLayers - [v1.1.5] 当前护盾层数（0=无护盾，N=N层圆圈）
    */
-  render(ctx, showShield) {
+  render(ctx, shieldLayers) {
     const { BIRD, VISUAL } = Config
 
     // 无敌闪烁效果
@@ -189,20 +189,26 @@ class Bird {
       ctx.restore()
     }
 
-    // 护盾光环
-    if (showShield) {
+    // [v1.1.5] 统一护盾：N层护盾显示N个同心圆圈
+    if (shieldLayers > 0) {
       ctx.save()
       ctx.translate(this.x, this.y)
-      // [v1.1.1] 护盾半径适配灵巧缩放
-      const baseR = (this.width / 2) * this.collisionScale + 8
-      const shieldR = baseR + Math.sin(Date.now() * 0.005) * 2
-      ctx.fillStyle = VISUAL.SHIELD_COLOR
-      ctx.beginPath()
-      ctx.arc(0, 0, shieldR, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.strokeStyle = VISUAL.SHIELD_OUTLINE
-      ctx.lineWidth = 2
-      ctx.stroke()
+      for (let i = 0; i < shieldLayers; i++) {
+        // 每层圆圈半径递增，脉冲错相
+        const baseR = (this.width / 2) * this.collisionScale + 6 + i * 5
+        const shieldR = baseR + Math.sin(Date.now() * 0.005 + i * 0.8) * 2
+        const fillAlpha = Math.max(0.08, 0.35 - i * 0.06)
+        const strokeAlpha = Math.max(0.3, 0.8 - i * 0.12)
+
+        ctx.fillStyle = `rgba(100, 200, 255, ${fillAlpha})`
+        ctx.beginPath()
+        ctx.arc(0, 0, shieldR, 0, Math.PI * 2)
+        ctx.fill()
+
+        ctx.strokeStyle = `rgba(100, 200, 255, ${strokeAlpha})`
+        ctx.lineWidth = 2
+        ctx.stroke()
+      }
       ctx.restore()
     }
   }

@@ -97,7 +97,7 @@ module.exports = {
     PIPE_PASS_EXP: 10,     // [v1.1.4] 5→10 通过管道经验（经验球经验移除，保留后续版本）
     ORB_EXP: 10,           // 拾取经验球经验
     NEAR_MISS_EXP: 15,     // 擦边奖励经验
-    NEAR_MISS_DISTANCE: 15,// 擦边判定距离(px)
+    NEAR_MISS_DISTANCE: 25,// [v1.1.5] 15→25 降低擦边触发难度
     ORB_SPAWN_CHANCE: 0.7, // 通过管道时生成经验球的概率
     SCORE_PER_ORB: 2,      // 拾取经验球额外得分
     SCORE_NEAR_MISS: 3,    // 擦边额外得分
@@ -112,6 +112,18 @@ module.exports = {
     INVINCIBLE_FRAMES: 60, // 受击后无敌帧数(1s)
     HEART_SIZE: 18,        // [v1.1.1] 14→18 心形更大更清晰
     HEART_GAP: 6           // [v1.1.1] 4→6
+  },
+
+  // ==================== [v1.1.5] 统一护盾系统 ====================
+  SHIELD: {
+    DEFAULT_MAX_LAYERS: 1,       // 默认最大护盾层数
+    TOUGHNESS_RECOVER_CD: 1800,  // 坚韧护盾恢复CD(帧), 1800=30s
+    BOUNCE_RECOVER_BASE: 20,     // 弹力护盾恢复基础CD(秒)
+    BOUNCE_RECOVER_REDUCTION: 5, // 弹力护盾每级CD减少(秒)
+    BOUNCE_RECOVER_MIN: 5,       // 弹力护盾恢复CD下限(秒)
+    BOUNCE_VEL_UP: 0.6,          // 弹力护盾向上反弹力度系数
+    BOUNCE_VEL_DOWN: 0.4,        // 弹力护盾向下反弹力度系数
+    SHRINK_ANIM_FRAMES: 30       // 缩小射线管道缩回动画帧数
   },
 
   // ==================== [v1.1.0] 道具系统 ====================
