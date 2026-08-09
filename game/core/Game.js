@@ -1,10 +1,11 @@
 /**
- * Game.js - 游戏主类 [v1.1.1]
+ * Game.js - 游戏主类 [v1.1.2]
  *
  * 职责：游戏主循环、状态机管理、实体协调、碰撞检测、渲染调度。
  * 集成经验系统、能力系统、经验球、道具系统、HP血条、擦边判定。
  * [v1.1.0] 新增：HP系统、道具系统、安全区适配、结算界面重设计、二段跳。
  * [v1.1.1] 优化：HUD重构(HP/等级/经验条独立显示)、能力视觉特效、随机道具刷新、结算双按钮。
+ * [v1.1.2] 优化：系统日志(GameLogger)、弹力护甲平衡修复(有限次数+弹开不传送)、连击之心平衡修复。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -15,6 +16,7 @@ const Orb = require('../entities/Orb.js')
 const Item = require('../entities/Item.js')
 const ExpSystem = require('../systems/ExpSystem.js')
 const AbilitySystem = require('../systems/AbilitySystem.js')
+const Logger = require('../systems/GameLogger.js')
 
 class Game {
   /**
@@ -118,6 +120,7 @@ class Game {
   // ==================== 游戏控制 ====================
 
   start() {
+    Logger.info('Game', '游戏开始', { screenW: this.screenW, screenH: this.screenH })
     this.state = Config.GAME.STATE.PLAYING
     this.score = 0
     this.gameTime = 0
@@ -164,6 +167,7 @@ class Game {
   }
 
   backToReady() {
+    Logger.info('Game', '返回首页')
     this.state = Config.GAME.STATE.READY
     this.score = 0
     this.pipes = []
@@ -189,6 +193,7 @@ class Game {
   // ==================== 升级流程 ====================
 
   _triggerLevelUp() {
+    Logger.info('LevelUp', '触发升级', { level: this.expSystem.level, pending: this.expSystem.pendingLevelUps })
     this.state = Config.GAME.STATE.UPGRADING
     const choices = this.abilitySystem.getChoices()
 
@@ -206,6 +211,7 @@ class Game {
   }
 
   selectAbility(abilityId) {
+    Logger.info('LevelUp', '选择能力', { id: abilityId, currentLevel: this.abilitySystem.owned.get(abilityId) || 0 })
     this.abilitySystem.selectAbility(abilityId)
     this.abilitySystem.invalidateStats()
     this.expSystem.consumeLevelUp()
@@ -259,6 +265,7 @@ class Game {
 
   update() {
     this.frameCount++
+    Logger.setFrame(this.frameCount)  // [v1.1.2] 更新日志帧计数
 
     if (this.shakeFrames > 0) this.shakeFrames--
     if (this.damageFlash > 0) this.damageFlash--
@@ -492,6 +499,7 @@ class Game {
 
     // [v1.1.0] 管道计数
     this.pipesPassed++
+    Logger.debug('Pipe', '通过管道', { pipesPassed: this.pipesPassed, score: this.score })
 
     // 经验
     this.expSystem.addExp(Config.EXP.PIPE_PASS_EXP, stats.expMultiplier)
@@ -566,6 +574,7 @@ class Game {
   // ==================== 经验球拾取 ====================
 
   _collectOrb() {
+    Logger.debug('Orb', '拾取经验球')
     const stats = this.abilitySystem.getStats()
 
     // [v1.1.0] 经验共鸣：概率双倍
@@ -583,6 +592,7 @@ class Game {
 
   // [v1.1.0] 道具拾取
   _collectItem(item) {
+    Logger.info('Item', '拾取道具', { type: item.type, x: item.x, y: item.y })
     switch (item.type) {
       case 'exp_pack': {
         const expGain = Config.ITEM.EXP_PACK_MIN +
@@ -634,41 +644,51 @@ class Game {
   // ==================== 碰撞处理 [v1.1.0] HP系统 ====================
 
   /**
-   * 碰撞事件处理：弹力护甲 > 护盾 > 扣血 > 凤凰 > 死亡
+   * 碰撞事件处理：无敌 > 时间扭曲 > 弹力护甲 > 护盾 > 扣血 > 凤凰 > 死亡
+   * [v1.1.2] 弹力护甲改为弹开（不再传送），有限次数
    * @returns {boolean} true=游戏结束, false=继续
    */
   _handleCollision() {
     // 无敌状态
     if (this.abilitySystem.invincibleFrames > 0) {
+      Logger.debug('Collision', '无敌中，忽略碰撞', { invincibleFrames: this.abilitySystem.invincibleFrames })
       this.bird.invincibleBlink = 20
       return false
     }
 
     // 时间扭曲激活中
     if (this.abilitySystem.timeWarpActive > 0) {
+      Logger.debug('Collision', '时间扭曲中，忽略碰撞')
       this.bird.invincibleBlink = 20
       return false
     }
 
-    // [v1.1.0] 弹力护甲
+    // [v1.1.2] 弹力护甲——弹开小鸟，不传送
     if (this.abilitySystem.tryBounceArmor()) {
-      // 弹开小鸟到最近管道间隙中心
-      const nearestPipe = this._findNearestPipe()
-      if (nearestPipe) {
-        this.bird.y = nearestPipe.topHeight + nearestPipe.gap / 2
+      // [v1.1.2] 根据位置判断弹开方向：天花板向下，其他向上
+      const groundY = this.screenH - Config.GROUND.HEIGHT
+      if (this.bird.y < this.screenH * 0.12) {
+        // 靠近天花板——向下弹
+        this.bird.velocity = Math.abs(this.bird.flapForce) * 0.4
       } else {
-        this.bird.y = this.screenH * 0.45
+        // 地面或管道——向上弹
+        this.bird.velocity = this.bird.flapForce * 0.6
       }
-      this.bird.velocity = 0
-      this.bird.invincibleBlink = 30
-      this.abilitySystem.invincibleFrames = 30
+      this.bird.invincibleBlink = 20
+      this.abilitySystem.invincibleFrames = 20
       this.shakeFrames = 4
       this.shakeIntensity = 2
+      this._addFloatingText(this.bird.x, this.bird.y - 25, '弹开!', '#3498db', 35)
+      Logger.info('Collision', '弹力护甲弹开', {
+        charges: this.abilitySystem.bounceArmorCharges,
+        velocity: this.bird.velocity
+      })
       return false
     }
 
     // 护盾（坚韧护盾 + 道具护盾）
     if (this.abilitySystem.consumeShield()) {
+      Logger.info('Collision', '护盾抵挡')
       this.bird.invincibleBlink = 30
       this.abilitySystem.invincibleFrames = 60
       this.shakeFrames = 6
@@ -692,7 +712,6 @@ class Game {
         this.bird.reset(birdX, birdY)
         this.bird.invincibleBlink = 60
         this.abilitySystem.invincibleFrames = 120
-        this.abilitySystem.invalidateStats()
         this._addFloatingText(birdX, birdY, '复活!', '#ff6600', 60)
         return false
       }
@@ -703,24 +722,9 @@ class Game {
     }
 
     // 存活但受伤
+    Logger.info('Collision', '受到伤害', { hp: this.abilitySystem.hp, maxHp: this.abilitySystem.maxHp })
     this._addFloatingText(this.bird.x, this.bird.y - 20, '-1 HP', '#ff4444', 40)
     return false
-  }
-
-  /**
-   * 找到最近的管道（用于弹力护甲弹开）
-   */
-  _findNearestPipe() {
-    let nearest = null
-    let minDist = Infinity
-    for (const pipe of this.pipes) {
-      const dist = Math.abs(pipe.x + pipe.width / 2 - this.bird.x)
-      if (dist < minDist) {
-        minDist = dist
-        nearest = pipe
-      }
-    }
-    return nearest
   }
 
   _checkActiveAbilities() {
@@ -744,6 +748,7 @@ class Game {
           this.bird.y = pipe.topHeight + pipe.gap / 2
           this.bird.velocity = 0
           this.bird.invincibleBlink = 30
+          this.abilitySystem.invincibleFrames = 30  // [v1.1.2] 瞬移后给实际无敌帧防止立即再碰撞
           return
         }
       }
@@ -753,6 +758,14 @@ class Game {
   // ==================== 游戏结束 ====================
 
   _gameOver() {
+    Logger.warn('Game', '游戏结束', {
+      score: this.score,
+      bestScore: this.bestScore,
+      level: this.expSystem.level,
+      pipesPassed: this.pipesPassed,
+      gameTime: this.gameTime,
+      abilities: this.abilitySystem.getOwnedList().map(a => `${a.def.id}:L${a.level}`)
+    })
     this.state = Config.GAME.STATE.GAME_OVER
     this.shakeFrames = 12
     this.shakeIntensity = 6

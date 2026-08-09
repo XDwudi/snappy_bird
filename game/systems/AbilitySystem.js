@@ -1,5 +1,5 @@
 /**
- * AbilitySystem.js - 能力系统核心 [v1.1.0]
+ * AbilitySystem.js - 能力系统核心 [v1.1.2]
  *
  * 职责：
  * - 管理已拥有的能力（id → level）
@@ -12,6 +12,7 @@
 
 const Config = require('../config/GameConfig.js')
 const Registry = require('../abilities/AbilityRegistry.js')
+const Logger = require('./GameLogger.js')
 
 class AbilitySystem {
   constructor() {
@@ -40,6 +41,7 @@ class AbilitySystem {
     this.shieldBurstTimer = 0
     this.regenerationTimer = 0      // [v1.1.0] 自愈计时器
     this.bounceArmorCD = 0          // [v1.1.0] 弹力护甲CD
+    this.bounceArmorCharges = 0     // [v1.1.2] 弹力护甲剩余次数
     this.doubleJumpCD = 0           // [v1.1.0] 二段跳CD
     this.lastFlapFrame = -999       // [v1.1.0] 上次拍翅帧（二段跳检测）
 
@@ -101,11 +103,22 @@ class AbilitySystem {
       const vitLv = this.owned.get('vitality')
       this.maxHp = Config.HP.INITIAL_MAX + vitLv
       this.hp = Math.min(this.hp + 1, this.maxHp)  // 选择时恢复1HP
+      Logger.info('Ability', '活力之心升级', { level: vitLv, maxHp: this.maxHp, hp: this.hp })
     }
 
     // [v1.1.0] 自愈 → 初始化计时器
     if (id === 'regeneration') {
       this.regenerationTimer = this._getRegenerationCD()
+      Logger.info('Ability', '自愈升级', { level: this.owned.get('regeneration') })
+    }
+
+    // [v1.1.2] 弹力护甲 → 初始化充能次数
+    if (id === 'bounce_armor') {
+      this.bounceArmorCharges = this._getBounceArmorMaxCharges()
+      Logger.info('Ability', '弹力护甲升级', {
+        level: this.owned.get('bounce_armor'),
+        charges: this.bounceArmorCharges
+      })
     }
 
     // 凤凰 → 重置使用次数
@@ -189,8 +202,8 @@ class AbilitySystem {
     // 幸运光环
     s.bonusChoices = lv('lucky')
 
-    // 连击之心
-    s.comboThreshold = Math.max(1, 5 - 2 * lv('combo_heart'))
+    // 连击之心 [v1.1.2] 平衡调整：阈值 min=2，避免每管触发永久无敌
+    s.comboThreshold = Math.max(2, 5 - lv('combo_heart'))
 
     // 缩小射线
     s.gapBonus = 15 * lv('shrink_ray')
@@ -212,7 +225,8 @@ class AbilitySystem {
 
     // [v1.1.0] 新增主动技能
     s.hasRegeneration = lv('regeneration') > 0
-    s.hasBounceArmor = lv('bounce_armor') > 0
+    // [v1.1.2] 弹力护甲需要有剩余次数
+    s.hasBounceArmor = lv('bounce_armor') > 0 && this.bounceArmorCharges > 0
     s.hasDoubleJump = lv('double_jump') > 0
 
     return s
@@ -258,6 +272,8 @@ class AbilitySystem {
       if (this.regenerationTimer <= 0) {
         this.hp = Math.min(this.hp + 1, this.maxHp)
         this.regenerationTimer = this._getRegenerationCD()
+        Logger.info('Ability', '自愈恢复HP', { hp: this.hp, maxHp: this.maxHp, nextCD: this.regenerationTimer })
+        this.invalidateStats()  // [v1.1.2] HP变化刷新缓存
       }
     }
   }
@@ -288,7 +304,13 @@ class AbilitySystem {
   // [v1.1.0] 弹力护甲CD
   _getBounceArmorCD() {
     const lv = this.owned.get('bounce_armor') || 0
-    return (20 - 3 * (lv - 1)) * 60
+    return (30 - 5 * (lv - 1)) * 60  // [v1.1.2] CD加长: Lv1=30s, Lv2=25s, Lv3=20s
+  }
+
+  // [v1.1.2] 弹力护甲最大充能次数
+  _getBounceArmorMaxCharges() {
+    const lv = this.owned.get('bounce_armor') || 0
+    return 1 + lv  // Lv1=2次, Lv2=3次, Lv3=4次
   }
 
   // [v1.1.0] 二段跳CD
@@ -306,6 +328,8 @@ class AbilitySystem {
   takeDamage() {
     this.hp -= Config.HP.COLLISION_DAMAGE
     this.resetCombo()
+    Logger.warn('HP', '受到伤害', { hp: this.hp, maxHp: this.maxHp })
+    this.invalidateStats()  // [v1.1.2] 修复：HP变化后刷新缓存，使狂暴立即生效
     if (this.hp <= 0) {
       return true  // 死亡
     }
@@ -316,7 +340,10 @@ class AbilitySystem {
    * 恢复HP
    */
   healHP(amount) {
+    const before = this.hp
     this.hp = Math.min(this.hp + amount, this.maxHp)
+    Logger.info('HP', '恢复HP', { before, after: this.hp, maxHp: this.maxHp })
+    this.invalidateStats()  // [v1.1.2] HP变化刷新缓存
   }
 
   /**
@@ -336,10 +363,12 @@ class AbilitySystem {
     if (this.shields > 0) {
       this.shields--
       this.shieldRecoverTimer = 0
+      Logger.info('Shield', '坚韧护盾消耗', { remaining: this.shields })
       return true
     }
     if (this.itemShieldFrames > 0) {
       this.itemShieldFrames = 0
+      Logger.info('Shield', '道具护盾消耗')
       return true
     }
     return false
@@ -361,8 +390,10 @@ class AbilitySystem {
 
   onPipePass() {
     this.comboCount++
-    if (this.comboCount >= this.getStat('comboThreshold')) {
-      this.invincibleFrames = 300
+    const threshold = this.getStat('comboThreshold')
+    if (this.comboCount >= threshold) {
+      this.invincibleFrames = 180  // [v1.1.2] 300→180帧(3s)，避免永久无敌
+      Logger.info('Combo', '连击无敌触发', { comboCount: this.comboCount, threshold, invincibleFrames: 180 })
       this.comboCount = 0
     }
   }
@@ -377,12 +408,14 @@ class AbilitySystem {
     if (!this.getStat('hasTimeWarp') || this.timeWarpCD > 0) return false
     this.timeWarpCD = this._getTimeWarpCD()
     this.timeWarpActive = 60
+    Logger.info('Ability', '时间扭曲触发', { cd: this.timeWarpCD })
     return true
   }
 
   tryTeleport() {
     if (!this.getStat('hasTeleport') || this.teleportCD > 0) return false
     this.teleportCD = this._getTeleportCD()
+    Logger.info('Ability', '瞬移触发', { cd: this.teleportCD })
     return true
   }
 
@@ -391,13 +424,20 @@ class AbilitySystem {
     this.phoenixUsed++
     this.hp = this.maxHp  // 恢复满HP
     this.invalidateStats()
+    Logger.info('Ability', '凤凰复活触发', { phoenixUsed: this.phoenixUsed, hp: this.hp })
     return true
   }
 
-  // [v1.1.0] 弹力护甲
+  // [v1.1.2] 弹力护甲——有限次数，消耗充能
   tryBounceArmor() {
     if (!this.getStat('hasBounceArmor') || this.bounceArmorCD > 0) return false
     this.bounceArmorCD = this._getBounceArmorCD()
+    this.bounceArmorCharges--
+    Logger.info('Ability', '弹力护甲触发', {
+      remainingCharges: this.bounceArmorCharges,
+      cd: this.bounceArmorCD
+    })
+    this.invalidateStats()  // [v1.1.2] 充能耗尽后更新hasBounceArmor
     return true
   }
 
@@ -413,6 +453,7 @@ class AbilitySystem {
     if (currentFrame - this.lastFlapFrame <= 8 && currentFrame - this.lastFlapFrame >= 2) {
       this.doubleJumpCD = this._getDoubleJumpCD()
       this.lastFlapFrame = -999
+      Logger.info('Ability', '二段跳触发', { cd: this.doubleJumpCD })
       return true
     }
     this.lastFlapFrame = currentFrame

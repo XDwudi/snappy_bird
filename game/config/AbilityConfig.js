@@ -142,15 +142,15 @@ const Abilities = [
     maxLevel: 3,
     effectText: (lv) => `每${30 - 5 * (lv - 1)}s恢复1HP`
   },
-  // [v1.1.0新增]
+  // [v1.1.0新增] [v1.1.2平衡调整]
   {
     id: 'bounce_armor',
     name: '弹力护甲',
     icon: '🌀',
-    desc: '碰撞时弹开免伤',
+    desc: '碰撞时弹开免伤（有限次数）',
     category: ABILITY.CATEGORY.ACTIVE,
     maxLevel: 3,
-    effectText: (lv) => `弹开免伤，CD ${20 - 3 * (lv - 1)}s`
+    effectText: (lv) => `弹开免伤${1 + lv}次，CD ${30 - 5 * (lv - 1)}s`
   },
   // [v1.1.0新增]
   {
@@ -198,7 +198,10 @@ const Abilities = [
     desc: '连续通过管道获得无敌',
     category: ABILITY.CATEGORY.SPECIAL,
     maxLevel: 3,  // [v1.1.0] 2→3
-    effectText: (lv) => `连过${5 - 2 * (lv - 1)}管道，5s无敌`
+    effectText: (lv) => {
+      const threshold = Math.max(2, 5 - lv)
+      return `连过${threshold}管道，3s无敌`
+    }
   },
   {
     id: 'shrink_ray',

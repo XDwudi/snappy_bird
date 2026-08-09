@@ -8,12 +8,15 @@
 
 const Game = require('./game/core/Game.js')
 const Storage = require('./utils/Storage.js')
+const Logger = require('./game/systems/GameLogger.js')
 
 // ===== 获取系统信息 =====
+Logger.info('System', '小游戏初始化开始')
 const systemInfo = wx.getSystemInfoSync()
 const screenWidth = systemInfo.screenWidth
 const screenHeight = systemInfo.screenHeight
 const pixelRatio = systemInfo.pixelRatio
+Logger.info('System', '系统信息', { screenWidth, screenHeight, pixelRatio, safeArea: systemInfo.safeArea })
 
 // [v1.1.0] 获取安全区域（适配刘海屏/全面屏）
 const safeArea = systemInfo.safeArea || null
@@ -52,4 +55,5 @@ wx.onTouchStart(function (e) {
 })
 
 // ===== 启动游戏循环 =====
+Logger.info('System', '游戏循环启动')
 game.loop()
