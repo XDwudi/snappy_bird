@@ -1,11 +1,12 @@
 /**
- * Game.js - 游戏主类 [v1.1.2]
+ * Game.js - 游戏主类 [v1.1.3]
  *
  * 职责：游戏主循环、状态机管理、实体协调、碰撞检测、渲染调度。
  * 集成经验系统、能力系统、经验球、道具系统、HP血条、擦边判定。
  * [v1.1.0] 新增：HP系统、道具系统、安全区适配、结算界面重设计、二段跳。
  * [v1.1.1] 优化：HUD重构(HP/等级/经验条独立显示)、能力视觉特效、随机道具刷新、结算双按钮。
  * [v1.1.2] 优化：系统日志(GameLogger)、弹力护甲平衡修复(有限次数+弹开不传送)、连击之心平衡修复。
+ * [v1.1.3] 优化：经验球改为直接获取+文字提示、经验日志、道具前方生成、稀有度概率系统。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -195,7 +196,7 @@ class Game {
   _triggerLevelUp() {
     Logger.info('LevelUp', '触发升级', { level: this.expSystem.level, pending: this.expSystem.pendingLevelUps })
     this.state = Config.GAME.STATE.UPGRADING
-    const choices = this.abilitySystem.getChoices()
+    const choices = this.abilitySystem.getChoices(this.expSystem.level)  // [v1.1.3] 传入玩家等级影响稀有度概率
 
     if (choices.length === 0) {
       this.abilitySystem.selectAllBuff()
@@ -501,24 +502,40 @@ class Game {
     this.pipesPassed++
     Logger.debug('Pipe', '通过管道', { pipesPassed: this.pipesPassed, score: this.score })
 
-    // 经验
+    // 经验（通过管道基础经验）
+    const pipeExp = Math.round(Config.EXP.PIPE_PASS_EXP * stats.expMultiplier)
     this.expSystem.addExp(Config.EXP.PIPE_PASS_EXP, stats.expMultiplier)
+    Logger.info('Exp', '通过管道获得经验', { source: 'pipe_pass', base: Config.EXP.PIPE_PASS_EXP, multiplied: pipeExp, level: this.expSystem.level })
+
+    // [v1.1.3] 删除经验球黄色圆形，改为直接获得经验 + 小鸟头上文字提示
+    if (Math.random() < Config.EXP.ORB_SPAWN_CHANCE) {
+      let orbExp = Config.EXP.ORB_EXP
+      // 经验共鸣：概率双倍
+      if (this.abilitySystem.checkExpResonance()) {
+        orbExp *= 2
+        this._addFloatingText(this.bird.x, this.bird.y - 35, `+${orbExp} EXP x2!`, '#9b59b6', 45)
+        Logger.info('Exp', '经验共鸣触发', { base: Config.EXP.ORB_EXP, doubled: orbExp })
+      } else {
+        this._addFloatingText(this.bird.x, this.bird.y - 35, `+${orbExp} EXP`, '#ffd700', 45)
+      }
+      this.expSystem.addExp(orbExp, stats.expMultiplier)
+      this.score += Config.EXP.SCORE_PER_ORB
+      if (this.onScoreChange) this.onScoreChange(this.score)
+      Logger.info('Exp', '经验球经验（直接获取）', { source: 'orb', base: orbExp, multiplied: Math.round(orbExp * stats.expMultiplier), scoreBonus: Config.EXP.SCORE_PER_ORB })
+    }
+
     if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
 
     // 连击
     this.abilitySystem.onPipePass()
 
-    // 生成经验球
-    if (Math.random() < Config.EXP.ORB_SPAWN_CHANCE) {
-      const orbX = pipe.x + pipe.width / 2
-      const orbY = pipe.topHeight + pipe.gap / 2
-      this.orbs.push(new Orb(orbX, orbY))
-    }
-
-    // [v1.1.0] 生成道具
+    // [v1.1.0] 生成道具 [v1.1.3] 修复：在小鸟前方生成（右侧），不在后方（管道位置）
     if (Math.random() < Config.ITEM.SPAWN_CHANCE) {
-      const itemX = pipe.x + pipe.width / 2
-      const itemY = pipe.topHeight + pipe.gap / 2 + (Math.random() - 0.5) * 30
+      const itemX = this.screenW + 20 + Math.random() * 40  // [v1.1.3] 前方生成
+      const groundY = this.screenH - Config.GROUND.HEIGHT
+      const minY = Config.PIPE.MIN_TOP + 30
+      const maxY = groundY - 30
+      const itemY = minY + Math.random() * (maxY - minY)
       const itemType = this._rollItemType()
       this.items.push(new Item(itemX, itemY, itemType))
     }
@@ -551,8 +568,10 @@ class Game {
 
     if (minDist < Config.EXP.NEAR_MISS_DISTANCE && minDist > 0) {
       const stats = this.abilitySystem.getStats()
+      const nearMissExp = Math.round(Config.EXP.NEAR_MISS_EXP * stats.expMultiplier)
       this.expSystem.addExp(Config.EXP.NEAR_MISS_EXP, stats.expMultiplier)
       this.score += Config.EXP.SCORE_NEAR_MISS
+      Logger.info('Exp', '擦边获得经验', { source: 'near_miss', base: Config.EXP.NEAR_MISS_EXP, multiplied: nearMissExp, scoreBonus: Config.EXP.SCORE_NEAR_MISS })
       if (this.onScoreChange) this.onScoreChange(this.score)
       if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
 
@@ -574,10 +593,9 @@ class Game {
   // ==================== 经验球拾取 ====================
 
   _collectOrb() {
-    Logger.debug('Orb', '拾取经验球')
     const stats = this.abilitySystem.getStats()
 
-    // [v1.1.0] 经验共鸣：概率双倍
+    // 经验共鸣：概率双倍
     let orbExp = Config.EXP.ORB_EXP
     if (this.abilitySystem.checkExpResonance()) {
       orbExp *= 2
@@ -586,6 +604,7 @@ class Game {
 
     this.expSystem.addExp(orbExp, stats.expMultiplier)
     this.score += Config.EXP.SCORE_PER_ORB
+    Logger.info('Exp', '拾取经验球', { source: 'orb', base: orbExp, multiplied: Math.round(orbExp * stats.expMultiplier), scoreBonus: Config.EXP.SCORE_PER_ORB })
     if (this.onScoreChange) this.onScoreChange(this.score)
     if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
   }
@@ -598,31 +617,33 @@ class Game {
         const expGain = Config.ITEM.EXP_PACK_MIN +
           Math.floor(Math.random() * (Config.ITEM.EXP_PACK_MAX - Config.ITEM.EXP_PACK_MIN + 1))
         const stats = this.abilitySystem.getStats()
+        const multipliedExp = Math.round(expGain * stats.expMultiplier)
         this.expSystem.addExp(expGain, stats.expMultiplier)
+        Logger.info('Exp', '经验包获得经验', { source: 'exp_pack', base: expGain, multiplied: multipliedExp, level: this.expSystem.level })
         if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
-        this._addFloatingText(item.x, item.y, `+${expGain} EXP`, '#9b59b6', 50)
+        this._addFloatingText(this.bird.x, this.bird.y - 30, `+${expGain} EXP`, '#9b59b6', 50)
         break
       }
       case 'health_pack': {
         if (this.abilitySystem.hp < this.abilitySystem.maxHp) {
           this.abilitySystem.healHP(1)
-          this._addFloatingText(item.x, item.y, '+1 HP', '#e74c3c', 50)
+          this._addFloatingText(this.bird.x, this.bird.y - 30, '+1 HP', '#e74c3c', 50)
         } else {
           // 满血时转化为分数
           this.score += 5
           if (this.onScoreChange) this.onScoreChange(this.score)
-          this._addFloatingText(item.x, item.y, '+5 分', '#e74c3c', 50)
+          this._addFloatingText(this.bird.x, this.bird.y - 30, '+5 分', '#e74c3c', 50)
         }
         break
       }
       case 'shield_pack': {
         this.abilitySystem.addItemShield(Config.ITEM.SHIELD_DURATION)
-        this._addFloatingText(item.x, item.y, '护盾!', '#3498db', 50)
+        this._addFloatingText(this.bird.x, this.bird.y - 30, '护盾!', '#3498db', 50)
         break
       }
       case 'speed_pack': {
         this.abilitySystem.setSpeedPack(Config.ITEM.SPEED_PACK_DURATION)
-        this._addFloatingText(item.x, item.y, '减速!', '#1abc9c', 50)
+        this._addFloatingText(this.bird.x, this.bird.y - 30, '减速!', '#1abc9c', 50)
         break
       }
     }
@@ -1246,12 +1267,15 @@ class Game {
   _drawCard(x, y, w, h, def, currentLevel) {
     const ctx = this.ctx
 
-    const catColors = {
-      passive: '#4a90d9',
-      active: '#d94a4a',
-      special: '#9b59b6'
+    // [v1.1.3] 稀有度颜色
+    const rarityColors = {
+      common: { border: '#4a90d9', label: '普通', labelColor: '#aaaaaa' },
+      uncommon: { border: '#2ecc71', label: '稀有', labelColor: '#2ecc71' },
+      rare: { border: '#e74c3c', label: '珍贵', labelColor: '#e74c3c' },
+      epic: { border: '#9b59b6', label: '史诗', labelColor: '#9b59b6' }
     }
-    const borderColor = catColors[def.category] || '#666666'
+    const rarity = rarityColors[def.rarity] || rarityColors.common
+    const borderColor = rarity.border
 
     ctx.fillStyle = 'rgba(30, 30, 40, 0.95)'
     this._roundRect(x, y, w, h, 8)
@@ -1282,17 +1306,22 @@ class Game {
       ctx.fillText(`新能力! Lv.${nextLevel}`, cx, y + 88)
     }
 
+    // [v1.1.3] 稀有度标签
+    ctx.font = 'bold 9px monospace'
+    ctx.fillStyle = rarity.labelColor
+    ctx.fillText(`[${rarity.label}]`, cx, y + 103)
+
     const catNames = { passive: '被动', active: '主动', special: '特殊' }
     ctx.font = '10px monospace'
-    ctx.fillStyle = borderColor
-    ctx.fillText(`[${catNames[def.category] || ''}]`, cx, y + 105)
+    ctx.fillStyle = '#888888'
+    ctx.fillText(`[${catNames[def.category] || ''}]`, cx, y + 116)
 
     ctx.font = '11px monospace'
     ctx.fillStyle = '#cccccc'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     const effectText = def.effectText(nextLevel)
-    this._wrapText(effectText, x + 8, y + 120, w - 16, 15)
+    this._wrapText(effectText, x + 8, y + 130, w - 16, 15)
 
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'

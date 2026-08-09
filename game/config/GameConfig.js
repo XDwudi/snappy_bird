@@ -168,9 +168,42 @@ module.exports = {
       SPECIAL: 'special'
     },
     CHOICE_COUNT: 3,       // 默认可选数量
-    WEIGHT_NEW: 3,         // 未拥有能力权重
-    WEIGHT_OWNED: 2,       // 已拥有可升级权重
-    MAX_ALL_BUFF_LEVEL: 10 // 全属性加成最大等级
+    MAX_ALL_BUFF_LEVEL: 10, // 全属性加成最大等级
+
+    // [v1.1.3] 新能力权重倍率
+    NEW_ABILITY_BONUS: 1.3  // 未拥有能力权重额外乘数
+  },
+
+  // ==================== [v1.1.3] 能力稀有度系统 ====================
+  RARITY: {
+    COMMON: {
+      id: 'common',
+      name: '普通',
+      baseWeight: 10,    // 基础权重
+      levelBonus: 0,     // 每级权重增长系数（0=不随等级增长）
+      maxWeight: 12      // 权重上限
+    },
+    UNCOMMON: {
+      id: 'uncommon',
+      name: '稀有',
+      baseWeight: 6,
+      levelBonus: 0.2,
+      maxWeight: 10
+    },
+    RARE: {
+      id: 'rare',
+      name: '珍贵',
+      baseWeight: 3,
+      levelBonus: 0.4,
+      maxWeight: 8
+    },
+    EPIC: {
+      id: 'epic',
+      name: '史诗',
+      baseWeight: 1.5,
+      levelBonus: 0.6,
+      maxWeight: 6
+    }
   },
 
   // ==================== 云朵参数 ====================

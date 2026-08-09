@@ -1,8 +1,9 @@
 /**
- * AbilityConfig.js - 能力数据配置 [v1.1.0]
+ * AbilityConfig.js - 能力数据配置 [v1.1.3]
  *
  * 共22个能力：被动8 + 主动7 + 特殊7
- * v1.1.0变更：提升15个旧能力等级上限 + 新增6个能力
+ * v1.1.0变更：提升15个旧能力等级上限 + 新增7个能力
+ * v1.1.3变更：为每个能力添加稀有度(rarity)，用于升级选牌概率计算
  */
 
 const ABILITY = require('./GameConfig.js').ABILITY
@@ -14,6 +15,7 @@ const ABILITY = require('./GameConfig.js').ABILITY
  * @property {string} icon - 图标(emoji)
  * @property {string} desc - 简短描述
  * @property {string} category - 分类: passive | active | special
+ * @property {string} rarity - 稀有度: common | uncommon | rare | epic [v1.1.3]
  * @property {number} maxLevel - 最大等级
  * @property {Function} effectText - (level) => 效果说明文本
  */
@@ -26,7 +28,8 @@ const Abilities = [
     icon: '🪶',
     desc: '降低重力',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'common',       // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `重力 -${8 * lv}%`
   },
   {
@@ -35,7 +38,8 @@ const Abilities = [
     icon: '🌬️',
     desc: '提升上升力',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'common',       // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `上升力 +${10 * lv}%`
   },
   {
@@ -44,7 +48,8 @@ const Abilities = [
     icon: '✨',
     desc: '缩小碰撞箱',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `碰撞箱 -${12 * lv}%`
   },
   {
@@ -53,7 +58,8 @@ const Abilities = [
     icon: '🧲',
     desc: '扩大经验球/道具吸引范围',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `吸引范围 +${50 * lv}px`
   },
   {
@@ -62,7 +68,8 @@ const Abilities = [
     icon: '💰',
     desc: '增加经验获取',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `经验获取 +${25 * lv}%`
   },
   {
@@ -71,7 +78,8 @@ const Abilities = [
     icon: '❤️',
     desc: '获得护盾，破盾后30s恢复',
     category: ABILITY.CATEGORY.PASSIVE,
-    maxLevel: 3,  // [v1.1.0] 2→3
+    rarity: 'rare',          // [v1.1.3]
+    maxLevel: 3,
     effectText: (lv) => `护盾 ${lv}层，30s恢复`
   },
   // [v1.1.0新增]
@@ -81,6 +89,7 @@ const Abilities = [
     icon: '💗',
     desc: '提升最大HP',
     category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'rare',          // [v1.1.3]
     maxLevel: 2,
     effectText: (lv) => `最大HP +${lv}（上限${2 + lv}）`
   },
@@ -91,6 +100,7 @@ const Abilities = [
     icon: '🫀',
     desc: '延长受击无敌时间',
     category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 3,
     effectText: (lv) => `受击无敌 +${lv * 0.5}s`
   },
@@ -102,7 +112,8 @@ const Abilities = [
     icon: '⏳',
     desc: '即将碰撞时自动减速',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'rare',          // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `减速50%，CD ${20 - 3 * (lv - 1)}s`
   },
   {
@@ -111,7 +122,8 @@ const Abilities = [
     icon: '💫',
     desc: '即将碰撞时自动瞬移',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 3,  // [v1.1.0] 2→3
+    rarity: 'epic',          // [v1.1.3]
+    maxLevel: 3,
     effectText: (lv) => `瞬移至间隙，CD ${30 - 5 * (lv - 1)}s`
   },
   {
@@ -120,7 +132,8 @@ const Abilities = [
     icon: '🛡️',
     desc: '定期自动获得护盾',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `每${25 - 3 * (lv - 1)}s获得1层护盾`
   },
   {
@@ -129,7 +142,8 @@ const Abilities = [
     icon: '🔥',
     desc: '死亡时原地复活',
     category: ABILITY.CATEGORY.ACTIVE,
-    maxLevel: 2,  // [v1.1.0] 1→2
+    rarity: 'epic',          // [v1.1.3]
+    maxLevel: 2,
     effectText: (lv) => `复活${lv}次，恢复满HP`
   },
   // [v1.1.0新增]
@@ -139,6 +153,7 @@ const Abilities = [
     icon: '🌿',
     desc: '定期恢复HP',
     category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
     effectText: (lv) => `每${30 - 5 * (lv - 1)}s恢复1HP`
   },
@@ -149,6 +164,7 @@ const Abilities = [
     icon: '🌀',
     desc: '碰撞时弹开免伤（有限次数）',
     category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
     effectText: (lv) => `弹开免伤${1 + lv}次，CD ${30 - 5 * (lv - 1)}s`
   },
@@ -159,6 +175,7 @@ const Abilities = [
     icon: '⏫',
     desc: '快速双击触发额外上升',
     category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 2,
     effectText: (lv) => `二段跳，CD ${15 - 5 * (lv - 1)}s`
   },
@@ -170,7 +187,8 @@ const Abilities = [
     icon: '🐌',
     desc: '降低障碍物速度',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `障碍速度 -${10 * lv}%`
   },
   {
@@ -179,7 +197,8 @@ const Abilities = [
     icon: '📊',
     desc: '通过管道得分翻倍',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `管道得分 ×${1 + lv}`
   },
   {
@@ -188,7 +207,8 @@ const Abilities = [
     icon: '🍀',
     desc: '升级时增加能力选项',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 3,  // [v1.1.0] 2→3
+    rarity: 'rare',          // [v1.1.3]
+    maxLevel: 3,
     effectText: (lv) => `升级选项 +${lv}（共${3 + lv}选1）`
   },
   {
@@ -197,7 +217,8 @@ const Abilities = [
     icon: '⚡',
     desc: '连续通过管道获得无敌',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 3,  // [v1.1.0] 2→3
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 3,
     effectText: (lv) => {
       const threshold = Math.max(2, 5 - lv)
       return `连过${threshold}管道，3s无敌`
@@ -209,7 +230,8 @@ const Abilities = [
     icon: '📐',
     desc: '扩大障碍物间隙',
     category: ABILITY.CATEGORY.SPECIAL,
-    maxLevel: 5,  // [v1.1.0] 3→5
+    rarity: 'uncommon',     // [v1.1.3]
+    maxLevel: 5,
     effectText: (lv) => `管道间隙 +${15 * lv}px`
   },
   // [v1.1.0新增]
@@ -219,6 +241,7 @@ const Abilities = [
     icon: '🔮',
     desc: '拾取经验球概率双倍',
     category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
     effectText: (lv) => `${20 * lv}%概率经验球双倍`
   },
@@ -229,6 +252,7 @@ const Abilities = [
     icon: '😤',
     desc: 'HP为1时全属性提升',
     category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',          // [v1.1.3]
     maxLevel: 3,
     effectText: (lv) => `HP=1时，全属性 +${25 * lv}%`
   }

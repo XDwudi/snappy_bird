@@ -1,5 +1,5 @@
 /**
- * AbilitySystem.js - 能力系统核心 [v1.1.2]
+ * AbilitySystem.js - 能力系统核心 [v1.1.3]
  *
  * 职责：
  * - 管理已拥有的能力（id → level）
@@ -65,7 +65,12 @@ class AbilitySystem {
 
   // ==================== 能力选择 ====================
 
-  getChoices() {
+  /**
+   * [v1.1.3] 获取升级可选能力列表
+   * @param {number} playerLevel - 玩家当前等级（影响稀有度概率）
+   * @returns {Object[]}
+   */
+  getChoices(playerLevel) {
     let count = Config.ABILITY.CHOICE_COUNT + this.getStat('bonusChoices')
 
     const allMaxed = Registry.getAll().every(ab => {
@@ -75,7 +80,7 @@ class AbilitySystem {
 
     if (allMaxed) return []
 
-    return Registry.rollChoices(this.owned, count)
+    return Registry.rollChoices(this.owned, count, playerLevel || 1)
   }
 
   selectAbility(id) {
