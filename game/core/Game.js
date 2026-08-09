@@ -1,5 +1,5 @@
 /**
- * Game.js - 游戏主类 [v1.1.3]
+ * Game.js - 游戏主类 [v1.1.4]
  *
  * 职责：游戏主循环、状态机管理、实体协调、碰撞检测、渲染调度。
  * 集成经验系统、能力系统、经验球、道具系统、HP血条、擦边判定。
@@ -7,6 +7,7 @@
  * [v1.1.1] 优化：HUD重构(HP/等级/经验条独立显示)、能力视觉特效、随机道具刷新、结算双按钮。
  * [v1.1.2] 优化：系统日志(GameLogger)、弹力护甲平衡修复(有限次数+弹开不传送)、连击之心平衡修复。
  * [v1.1.3] 优化：经验球改为直接获取+文字提示、经验日志、道具前方生成、稀有度概率系统。
+ * [v1.1.4] 优化：经验系统统一化(管道经验5→10,删除经验球经验,经验共鸣全经验生效)、浮动文字堆叠渐隐、擦边特效增强(多环+粒子+闪光)、道具图标视觉区分。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -414,15 +415,37 @@ class Game {
     for (let i = this.nearMissEffects.length - 1; i >= 0; i--) {
       const e = this.nearMissEffects[i]
       e.life--
+      // [v1.1.4] 更新多环
+      if (e.rings) {
+        for (const ring of e.rings) {
+          ring.life--
+        }
+      }
+      // [v1.1.4] 更新粒子
+      if (e.sparkles) {
+        for (const sp of e.sparkles) {
+          sp.x += sp.vx
+          sp.y += sp.vy
+          sp.vy += 0.1  // 轻微重力
+          sp.life--
+        }
+        e.sparkles = e.sparkles.filter(s => s.life > 0)
+      }
+      // [v1.1.4] 闪光衰减
+      if (e.flashLife > 0) e.flashLife--
       if (e.life <= 0) this.nearMissEffects.splice(i, 1)
     }
   }
 
-  // [v1.1.0] 浮动文字更新
+  // [v1.1.0] 浮动文字更新 [v1.1.4] 带速度衰减的向上移动渐隐
   _updateFloatingTexts() {
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
       const t = this.floatingTexts[i]
       t.y += t.vy
+      // [v1.1.4] 速度衰减：末段减速，配合alpha渐隐更自然
+      if (t.vyDecay) {
+        t.vy = Math.min(t.vy + t.vyDecay, 0)  // vy为负，向0靠近=减速
+      }
       t.life--
       if (t.life <= 0) this.floatingTexts.splice(i, 1)
     }
@@ -502,29 +525,8 @@ class Game {
     this.pipesPassed++
     Logger.debug('Pipe', '通过管道', { pipesPassed: this.pipesPassed, score: this.score })
 
-    // 经验（通过管道基础经验）
-    const pipeExp = Math.round(Config.EXP.PIPE_PASS_EXP * stats.expMultiplier)
-    this.expSystem.addExp(Config.EXP.PIPE_PASS_EXP, stats.expMultiplier)
-    Logger.info('Exp', '通过管道获得经验', { source: 'pipe_pass', base: Config.EXP.PIPE_PASS_EXP, multiplied: pipeExp, level: this.expSystem.level })
-
-    // [v1.1.3] 删除经验球黄色圆形，改为直接获得经验 + 小鸟头上文字提示
-    if (Math.random() < Config.EXP.ORB_SPAWN_CHANCE) {
-      let orbExp = Config.EXP.ORB_EXP
-      // 经验共鸣：概率双倍
-      if (this.abilitySystem.checkExpResonance()) {
-        orbExp *= 2
-        this._addFloatingText(this.bird.x, this.bird.y - 35, `+${orbExp} EXP x2!`, '#9b59b6', 45)
-        Logger.info('Exp', '经验共鸣触发', { base: Config.EXP.ORB_EXP, doubled: orbExp })
-      } else {
-        this._addFloatingText(this.bird.x, this.bird.y - 35, `+${orbExp} EXP`, '#ffd700', 45)
-      }
-      this.expSystem.addExp(orbExp, stats.expMultiplier)
-      this.score += Config.EXP.SCORE_PER_ORB
-      if (this.onScoreChange) this.onScoreChange(this.score)
-      Logger.info('Exp', '经验球经验（直接获取）', { source: 'orb', base: orbExp, multiplied: Math.round(orbExp * stats.expMultiplier), scoreBonus: Config.EXP.SCORE_PER_ORB })
-    }
-
-    if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
+    // [v1.1.4] 经验：只给通过管道经验（5→10），不再给经验球经验
+    this._gainExp(Config.EXP.PIPE_PASS_EXP, 'pipe_pass', stats)
 
     // 连击
     this.abilitySystem.onPipePass()
@@ -568,45 +570,83 @@ class Game {
 
     if (minDist < Config.EXP.NEAR_MISS_DISTANCE && minDist > 0) {
       const stats = this.abilitySystem.getStats()
-      const nearMissExp = Math.round(Config.EXP.NEAR_MISS_EXP * stats.expMultiplier)
-      this.expSystem.addExp(Config.EXP.NEAR_MISS_EXP, stats.expMultiplier)
+      this._gainExp(Config.EXP.NEAR_MISS_EXP, 'near_miss', stats)
       this.score += Config.EXP.SCORE_NEAR_MISS
-      Logger.info('Exp', '擦边获得经验', { source: 'near_miss', base: Config.EXP.NEAR_MISS_EXP, multiplied: nearMissExp, scoreBonus: Config.EXP.SCORE_NEAR_MISS })
       if (this.onScoreChange) this.onScoreChange(this.score)
-      if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
 
-      // [v1.1.1] 增强擦边特效：扩散光环 + 文字提示
-      this.nearMissEffects.push({
+      // [v1.1.4] 增强擦边特效：多环扩散 + 粒子爆发 + 闪光
+      const effect = {
         x: this.bird.x,
         y: this.bird.y,
-        radius: 12,
-        maxRadius: 45,
-        life: 25,
-        maxLife: 25
-      })
+        rings: [
+          { radius: 10, maxRadius: 55, life: 30, maxLife: 30, lineWidth: 3 },
+          { radius: 8, maxRadius: 40, life: 24, maxLife: 24, lineWidth: 2 },
+          { radius: 5, maxRadius: 25, life: 18, maxLife: 18, lineWidth: 4 }
+        ],
+        sparkles: [],
+        flashLife: 12,
+        flashMaxLife: 12,
+        life: 30,
+        maxLife: 30
+      }
 
-      // [v1.1.1] 擦边浮动文字
-      this._addFloatingText(this.bird.x, this.bird.y - 30, '擦边!', '#ffd700', 40)
+      // 生成8个粒子向外爆发
+      for (let i = 0; i < 8; i++) {
+        const angle = (Math.PI * 2 * i) / 8 + Math.random() * 0.4
+        const speed = 2.5 + Math.random() * 2.5
+        effect.sparkles.push({
+          x: this.bird.x,
+          y: this.bird.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 25,
+          maxLife: 25
+        })
+      }
+
+      this.nearMissEffects.push(effect)
+
+      // [v1.1.4] 擦边浮动文字——向上偏移
+      this._addFloatingText(this.bird.x, this.bird.y - 45, '擦边!', '#ffd700', 45)
     }
+  }
+
+  // [v1.1.4] 统一经验获取方法——所有经验来源都通过此方法，确保经验共鸣对所有经验生效
+  _gainExp(baseExp, source, stats) {
+    let exp = baseExp
+    let doubled = false
+
+    // 经验共鸣：概率双倍（针对所有经验获得）
+    if (this.abilitySystem.checkExpResonance()) {
+      exp = baseExp * 2
+      doubled = true
+    }
+
+    const multiplied = this.expSystem.addExp(exp, stats.expMultiplier)
+
+    // 浮动文字——堆叠不重叠
+    const text = doubled ? `+${exp} EXP x2!` : `+${exp} EXP`
+    const color = doubled ? '#9b59b6' : '#ffd700'
+    this._addFloatingText(this.bird.x, this.bird.y - 30, text, color, 50)
+
+    Logger.info('Exp', '获得经验', {
+      source: source,
+      base: baseExp,
+      doubled: doubled,
+      multiplied: multiplied,
+      level: this.expSystem.level
+    })
+
+    if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
   }
 
   // ==================== 经验球拾取 ====================
 
   _collectOrb() {
     const stats = this.abilitySystem.getStats()
-
-    // 经验共鸣：概率双倍
-    let orbExp = Config.EXP.ORB_EXP
-    if (this.abilitySystem.checkExpResonance()) {
-      orbExp *= 2
-      this._addFloatingText(this.bird.x, this.bird.y - 20, 'x2!', '#9b59b6', 40)
-    }
-
-    this.expSystem.addExp(orbExp, stats.expMultiplier)
+    this._gainExp(Config.EXP.ORB_EXP, 'orb', stats)
     this.score += Config.EXP.SCORE_PER_ORB
-    Logger.info('Exp', '拾取经验球', { source: 'orb', base: orbExp, multiplied: Math.round(orbExp * stats.expMultiplier), scoreBonus: Config.EXP.SCORE_PER_ORB })
     if (this.onScoreChange) this.onScoreChange(this.score)
-    if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
   }
 
   // [v1.1.0] 道具拾取
@@ -617,11 +657,7 @@ class Game {
         const expGain = Config.ITEM.EXP_PACK_MIN +
           Math.floor(Math.random() * (Config.ITEM.EXP_PACK_MAX - Config.ITEM.EXP_PACK_MIN + 1))
         const stats = this.abilitySystem.getStats()
-        const multipliedExp = Math.round(expGain * stats.expMultiplier)
-        this.expSystem.addExp(expGain, stats.expMultiplier)
-        Logger.info('Exp', '经验包获得经验', { source: 'exp_pack', base: expGain, multiplied: multipliedExp, level: this.expSystem.level })
-        if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
-        this._addFloatingText(this.bird.x, this.bird.y - 30, `+${expGain} EXP`, '#9b59b6', 50)
+        this._gainExp(expGain, 'exp_pack', stats)
         break
       }
       case 'health_pack': {
@@ -649,16 +685,26 @@ class Game {
     }
   }
 
-  // [v1.1.0] 添加浮动文字
+  // [v1.1.0] 添加浮动文字 [v1.1.4] 堆叠不重叠 + 向上移动渐隐
   _addFloatingText(x, y, text, color, life) {
+    // [v1.1.4] 检查附近的浮动文字数量，向上偏移避免叠加
+    let stackCount = 0
+    for (const t of this.floatingTexts) {
+      if (Math.abs(t.x - x) < 40 && Math.abs(t.y - y) < 30) {
+        stackCount++
+      }
+    }
+    const yOffset = stackCount * 18
+
     this.floatingTexts.push({
       x: x,
-      y: y,
+      y: y - yOffset,
       text: text,
       color: color,
       life: life,
       maxLife: life,
-      vy: -1.5
+      vy: -1.5,              // 向上移动速度
+      vyDecay: 0.02          // [v1.1.4] 速度衰减使末段减速
     })
   }
 
@@ -893,25 +939,65 @@ class Game {
     ctx.strokeRect(3, 3, this.screenW - 6, this.screenH - 6)
   }
 
+  // [v1.1.4] 增强擦边特效：多环扩散 + 粒子爆发 + 中心闪光
   _drawNearMissEffects() {
     const ctx = this.ctx
+
     for (const e of this.nearMissEffects) {
-      const progress = 1 - e.life / e.maxLife
-      const radius = e.radius + (e.maxRadius - e.radius) * progress
-      const alpha = (1 - progress) * 0.7
+      // 中心闪光（最短暂，最亮）
+      if (e.flashLife > 0) {
+        const flashAlpha = (e.flashLife / e.flashMaxLife) * 0.5
+        ctx.fillStyle = `rgba(255, 255, 200, ${flashAlpha})`
+        ctx.beginPath()
+        ctx.arc(e.x, e.y, 20, 0, Math.PI * 2)
+        ctx.fill()
 
-      // 外圈光环
-      ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      ctx.arc(e.x, e.y, radius, 0, Math.PI * 2)
-      ctx.stroke()
+        ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha * 0.8})`
+        ctx.beginPath()
+        ctx.arc(e.x, e.y, 10, 0, Math.PI * 2)
+        ctx.fill()
+      }
 
-      // 内圈光晕
-      ctx.fillStyle = `rgba(255, 215, 0, ${alpha * 0.15})`
-      ctx.beginPath()
-      ctx.arc(e.x, e.y, radius * 0.5, 0, Math.PI * 2)
-      ctx.fill()
+      // 多环扩散
+      if (e.rings) {
+        for (const ring of e.rings) {
+          if (ring.life <= 0) continue
+          const progress = 1 - ring.life / ring.maxLife
+          const radius = ring.radius + (ring.maxRadius - ring.radius) * progress
+          const alpha = (1 - progress) * 0.8
+
+          // 外圈光环
+          ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
+          ctx.lineWidth = ring.lineWidth
+          ctx.beginPath()
+          ctx.arc(e.x, e.y, radius, 0, Math.PI * 2)
+          ctx.stroke()
+
+          // 内圈光晕
+          ctx.fillStyle = `rgba(255, 215, 0, ${alpha * 0.12})`
+          ctx.beginPath()
+          ctx.arc(e.x, e.y, radius * 0.5, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+
+      // 粒子爆发
+      if (e.sparkles) {
+        for (const sp of e.sparkles) {
+          if (sp.life <= 0) continue
+          const spAlpha = sp.life / sp.maxLife
+          // 粒子尾迹
+          ctx.fillStyle = `rgba(255, 215, 0, ${spAlpha * 0.4})`
+          ctx.beginPath()
+          ctx.arc(sp.x - sp.vx * 0.5, sp.y - sp.vy * 0.5, 3, 0, Math.PI * 2)
+          ctx.fill()
+          // 粒子核心
+          ctx.fillStyle = `rgba(255, 255, 200, ${spAlpha})`
+          ctx.beginPath()
+          ctx.arc(sp.x, sp.y, 2.5, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
     }
   }
 
@@ -958,11 +1044,13 @@ class Game {
     }
   }
 
-  // [v1.1.0] 浮动文字渲染
+  // [v1.1.0] 浮动文字渲染 [v1.1.4] 渐隐效果优化
   _drawFloatingTexts() {
     const ctx = this.ctx
     for (const t of this.floatingTexts) {
-      const alpha = t.life / t.maxLife
+      // [v1.1.4] 前60%不透明，后40%线性渐隐
+      const lifeRatio = t.life / t.maxLife
+      const alpha = lifeRatio > 0.6 ? 1.0 : lifeRatio / 0.6
       ctx.globalAlpha = alpha
       ctx.font = 'bold 14px monospace'
       ctx.textAlign = 'center'

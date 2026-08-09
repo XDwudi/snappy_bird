@@ -239,11 +239,11 @@ const Abilities = [
     id: 'exp_resonance',
     name: '经验共鸣',
     icon: '🔮',
-    desc: '拾取经验球概率双倍',
+    desc: '获得经验时概率双倍',
     category: ABILITY.CATEGORY.SPECIAL,
     rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
-    effectText: (lv) => `${20 * lv}%概率经验球双倍`
+    effectText: (lv) => `${20 * lv}%概率获得双倍经验`
   },
   // [v1.1.0新增]
   {

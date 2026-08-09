@@ -94,7 +94,7 @@ module.exports = {
   EXP: {
     BASE_EXP: 18,          // [v1.1.0] 20→18 前期更快
     EXP_INCREMENT: 12,     // [v1.1.0] 15→12 曲线更平缓
-    PIPE_PASS_EXP: 5,      // 通过管道经验
+    PIPE_PASS_EXP: 10,     // [v1.1.4] 5→10 通过管道经验（经验球经验移除，保留后续版本）
     ORB_EXP: 10,           // 拾取经验球经验
     NEAR_MISS_EXP: 15,     // 擦边奖励经验
     NEAR_MISS_DISTANCE: 15,// 擦边判定距离(px)

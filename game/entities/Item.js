@@ -1,5 +1,5 @@
 /**
- * Item.js - 道具实体 [v1.1.0新增]
+ * Item.js - 道具实体 [v1.1.0新增, v1.1.4图标区分]
  *
  * 继承 Collectible，支持4种道具类型：
  * - exp_pack: 经验包（随机15~30经验）
@@ -7,19 +7,12 @@
  * - shield_pack: 护盾包（1层护盾，5秒）
  * - speed_pack: 速度包（3秒全局减速50%）
  *
+ * [v1.1.4] 道具图标视觉区分：每种道具有独特形状，玩家一眼识别效果。
  * 道具受磁吸能力影响，拾取后触发对应效果。
  */
 
 const Config = require('../config/GameConfig.js')
 const Collectible = require('./Collectible.js')
-
-// 道具类型图标
-const ITEM_ICONS = {
-  exp_pack: '📦',
-  health_pack: '🩹',
-  shield_pack: '🛡️',
-  speed_pack: '⏱️'
-}
 
 class Item extends Collectible {
   /**
@@ -30,12 +23,11 @@ class Item extends Collectible {
   constructor(x, y, type) {
     super(x, y, Config.ITEM.RADIUS)
     this.type = type
-    this.icon = ITEM_ICONS[type] || '❓'
     this.color = Config.ITEM.COLORS[type] || '#888888'
   }
 
   /**
-   * 渲染道具
+   * 渲染道具 [v1.1.4] 每种道具独特图标
    */
   render(ctx) {
     const pulse = Math.sin(this.pulsePhase) * 0.15 + 1
@@ -58,17 +50,109 @@ class Item extends Collectible {
     ctx.lineWidth = 2
     ctx.stroke()
 
-    // 内层高光
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'
-    ctx.beginPath()
-    ctx.arc(this.x - r * 0.3, this.y - r * 0.3, r * 0.4, 0, Math.PI * 2)
-    ctx.fill()
+    // [v1.1.4] 按类型绘制独特图标
+    switch (this.type) {
+      case 'health_pack':
+        this._drawHealthIcon(ctx, r)
+        break
+      case 'exp_pack':
+        this._drawExpIcon(ctx, r)
+        break
+      case 'shield_pack':
+        this._drawShieldIcon(ctx, r)
+        break
+      case 'speed_pack':
+        this._drawSpeedIcon(ctx, r)
+        break
+    }
+  }
 
-    // 图标
-    ctx.font = `${Math.round(r * 1.1)}px sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(this.icon, this.x, this.y + 1)
+  /**
+   * [v1.1.4] 血包——白色医疗十字
+   */
+  _drawHealthIcon(ctx, r) {
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = '#000000'
+    ctx.lineWidth = 0.5
+    // 横条
+    const bw = r * 1.0
+    const bh = r * 0.3
+    ctx.fillRect(this.x - bw / 2, this.y - bh / 2, bw, bh)
+    ctx.strokeRect(this.x - bw / 2, this.y - bh / 2, bw, bh)
+    // 竖条
+    const vw = r * 0.3
+    const vh = r * 1.0
+    ctx.fillRect(this.x - vw / 2, this.y - vh / 2, vw, vh)
+    ctx.strokeRect(this.x - vw / 2, this.y - vh / 2, vw, vh)
+  }
+
+  /**
+   * [v1.1.4] 经验包——黄色五角星
+   */
+  _drawExpIcon(ctx, r) {
+    const spikes = 5
+    const outerR = r * 0.7
+    const innerR = r * 0.3
+    ctx.fillStyle = '#ffd700'
+    ctx.strokeStyle = '#000000'
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    for (let i = 0; i < spikes * 2; i++) {
+      const rad = i % 2 === 0 ? outerR : innerR
+      const angle = (Math.PI / spikes) * i - Math.PI / 2
+      const px = this.x + Math.cos(angle) * rad
+      const py = this.y + Math.sin(angle) * rad
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.lineTo(px, py)
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+  }
+
+  /**
+   * [v1.1.4] 护盾包——白色盾牌形状
+   */
+  _drawShieldIcon(ctx, r) {
+    const sr = r * 0.65
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = '#000000'
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    ctx.moveTo(this.x, this.y - sr)
+    ctx.lineTo(this.x + sr * 0.7, this.y - sr * 0.4)
+    ctx.lineTo(this.x + sr * 0.6, this.y + sr * 0.2)
+    ctx.lineTo(this.x, this.y + sr * 0.8)
+    ctx.lineTo(this.x - sr * 0.6, this.y + sr * 0.2)
+    ctx.lineTo(this.x - sr * 0.7, this.y - sr * 0.4)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    // 内部小十字
+    ctx.fillStyle = this.color
+    const cs = sr * 0.35
+    ctx.fillRect(this.x - cs * 0.6, this.y - cs * 0.2, cs * 1.2, cs * 0.4)
+    ctx.fillRect(this.x - cs * 0.2, this.y - cs * 0.6, cs * 0.4, cs * 1.2)
+  }
+
+  /**
+   * [v1.1.4] 速度包——黄色闪电
+   */
+  _drawSpeedIcon(ctx, r) {
+    const sr = r * 0.7
+    ctx.fillStyle = '#ffd700'
+    ctx.strokeStyle = '#000000'
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    ctx.moveTo(this.x + sr * 0.15, this.y - sr * 0.8)
+    ctx.lineTo(this.x - sr * 0.4, this.y + sr * 0.1)
+    ctx.lineTo(this.x - sr * 0.05, this.y + sr * 0.1)
+    ctx.lineTo(this.x - sr * 0.2, this.y + sr * 0.8)
+    ctx.lineTo(this.x + sr * 0.45, this.y - sr * 0.15)
+    ctx.lineTo(this.x + sr * 0.1, this.y - sr * 0.15)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
   }
 
   /**
