@@ -1,9 +1,10 @@
 /**
- * Game.js - 游戏主类 [v1.1.0]
+ * Game.js - 游戏主类 [v1.1.1]
  *
  * 职责：游戏主循环、状态机管理、实体协调、碰撞检测、渲染调度。
  * 集成经验系统、能力系统、经验球、道具系统、HP血条、擦边判定。
  * [v1.1.0] 新增：HP系统、道具系统、安全区适配、结算界面重设计、二段跳。
+ * [v1.1.1] 优化：HUD重构(HP/等级/经验条独立显示)、能力视觉特效、随机道具刷新、结算双按钮。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -59,6 +60,7 @@ class Game {
     this.frameCount = 0
     this.survivalTimer = 0
     this.pipesPassed = 0          // [v1.1.0] 通过管道计数
+    this.itemSpawnTimer = 0       // [v1.1.1] 随机道具刷新计时器
 
     // 地面滚动偏移
     this.groundOffset = 0
@@ -123,6 +125,7 @@ class Game {
     this.frameCount = 0
     this.survivalTimer = 0
     this.pipesPassed = 0
+    this.itemSpawnTimer = 0       // [v1.1.1] 随机道具刷新计时器
     this.pipes = []
     this.orbs = []
     this.items = []
@@ -170,6 +173,7 @@ class Game {
     this.floatingTexts = []
     this.shakeFrames = 0
     this.damageFlash = 0
+    this.itemSpawnTimer = 0       // [v1.1.1]
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -291,6 +295,15 @@ class Game {
       this.spawnTimer = 0
     }
 
+    // [v1.1.1] 随机道具刷新（独立于管道通过）
+    this.itemSpawnTimer++
+    if (this.itemSpawnTimer >= Config.ITEM.RANDOM_SPAWN_INTERVAL) {
+      if (Math.random() < Config.ITEM.RANDOM_SPAWN_CHANCE) {
+        this._spawnRandomItem()
+      }
+      this.itemSpawnTimer = 0
+    }
+
     // 滚动速度（含能力修饰 + 速度包减速）
     const scrollSpeed = this._getScrollSpeed()
 
@@ -393,7 +406,6 @@ class Game {
     for (let i = this.nearMissEffects.length - 1; i >= 0; i--) {
       const e = this.nearMissEffects[i]
       e.life--
-      e.radius += 2
       if (e.life <= 0) this.nearMissEffects.splice(i, 1)
     }
   }
@@ -455,6 +467,17 @@ class Game {
     const maxTop = groundY - gap - Config.PIPE.MIN_BOTTOM
     const topHeight = minTop + Math.random() * (maxTop - minTop)
     this.pipes.push(new Pipe(this.screenW + 10, topHeight, gap, groundY))
+  }
+
+  // [v1.1.1] 随机道具刷新（不依赖管道通过）
+  _spawnRandomItem() {
+    const groundY = this.screenH - Config.GROUND.HEIGHT
+    const minY = Config.PIPE.MIN_TOP + 30
+    const maxY = groundY - 30
+    const itemY = minY + Math.random() * (maxY - minY)
+    const itemX = this.screenW + 20
+    const itemType = this._rollItemType()
+    this.items.push(new Item(itemX, itemY, itemType))
   }
 
   // ==================== 通过管道处理 ====================
@@ -525,12 +548,18 @@ class Game {
       if (this.onScoreChange) this.onScoreChange(this.score)
       if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
 
+      // [v1.1.1] 增强擦边特效：扩散光环 + 文字提示
       this.nearMissEffects.push({
         x: this.bird.x,
         y: this.bird.y,
-        radius: 10,
-        life: 20
+        radius: 12,
+        maxRadius: 45,
+        life: 25,
+        maxLife: 25
       })
+
+      // [v1.1.1] 擦边浮动文字
+      this._addFloatingText(this.bird.x, this.bird.y - 30, '擦边!', '#ffd700', 40)
     }
   }
 
@@ -766,6 +795,9 @@ class Game {
 
     this._drawNearMissEffects()
 
+    // [v1.1.1] 能力光环特效（磁吸/狂暴/时间扭曲）
+    this._drawAbilityAuras()
+
     // 小鸟（含护盾显示）
     const showShield = this.abilitySystem.shields > 0 || this.abilitySystem.itemShieldFrames > 0
     this.bird.render(ctx, showShield)
@@ -830,12 +862,65 @@ class Game {
   _drawNearMissEffects() {
     const ctx = this.ctx
     for (const e of this.nearMissEffects) {
-      const alpha = e.life / 20 * 0.6
+      const progress = 1 - e.life / e.maxLife
+      const radius = e.radius + (e.maxRadius - e.radius) * progress
+      const alpha = (1 - progress) * 0.7
+
+      // 外圈光环
       ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
       ctx.lineWidth = 3
       ctx.beginPath()
-      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2)
+      ctx.arc(e.x, e.y, radius, 0, Math.PI * 2)
       ctx.stroke()
+
+      // 内圈光晕
+      ctx.fillStyle = `rgba(255, 215, 0, ${alpha * 0.15})`
+      ctx.beginPath()
+      ctx.arc(e.x, e.y, radius * 0.5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+
+  // [v1.1.1] 能力光环特效
+  _drawAbilityAuras() {
+    const ctx = this.ctx
+
+    // 磁吸光环——显示吸引范围
+    const attractRange = this.abilitySystem.getStat('orbAttractRange')
+    if (attractRange > Config.ORB.ATTRACT_RANGE) {
+      ctx.save()
+      ctx.translate(this.bird.x, this.bird.y)
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.12)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([4, 4])
+      ctx.beginPath()
+      ctx.arc(0, 0, attractRange, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.restore()
+    }
+
+    // 狂暴红色光环——HP=1时触发
+    const berserkLv = this.abilitySystem.owned.get('berserk') || 0
+    if (berserkLv > 0 && this.abilitySystem.hp <= 1) {
+      ctx.save()
+      ctx.translate(this.bird.x, this.bird.y)
+      const pulse = Math.sin(this.frameCount * 0.2) * 0.3 + 0.7
+      const auraR = this.bird.width * 0.8
+      ctx.fillStyle = `rgba(255, 50, 50, ${0.15 * pulse})`
+      ctx.beginPath()
+      ctx.arc(0, 0, auraR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = `rgba(255, 80, 80, ${0.5 * pulse})`
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // 时间扭曲蓝色滤镜
+    if (this.abilitySystem.timeWarpActive > 0) {
+      ctx.fillStyle = 'rgba(100, 150, 255, 0.08)'
+      ctx.fillRect(0, 0, this.screenW, this.screenH)
     }
   }
 
@@ -882,71 +967,89 @@ class Game {
     ctx.fillRect(0, groundY, this.screenW, 2)
   }
 
-  // ==================== HUD 渲染 [v1.1.0] 安全区适配 ====================
+  // ==================== HUD 渲染 [v1.1.1] 重构布局 ====================
 
   _drawHUD() {
     if (this.state === Config.GAME.STATE.READY) return
 
     const ctx = this.ctx
-    const { VISUAL } = Config
-
-    // [v1.1.0] 使用安全区偏移
+    const { VISUAL, HP } = Config
     const topY = this.safeTop
+    const expData = this.expSystem.getExpBarData()
 
-    // ----- 分数 -----
+    // ----- HP 心形（左上角）-----
+    this._drawHPHearts(14, topY + 14, HP.HEART_SIZE, HP.HEART_GAP)
+
+    // ----- 等级徽章（右上角）-----
+    const badgeW = 54
+    const badgeH = 22
+    const badgeX = this.screenW - badgeW - 14
+    const badgeY = topY + 3
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+    this._roundRect(badgeX, badgeY, badgeW, badgeH, 11)
+    ctx.fill()
+    ctx.strokeStyle = '#ffd700'
+    ctx.lineWidth = 1.5
+    this._roundRect(badgeX, badgeY, badgeW, badgeH, 11)
+    ctx.stroke()
+    ctx.font = 'bold 13px monospace'
+    ctx.fillStyle = '#ffd700'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`Lv.${expData.level}`, badgeX + badgeW / 2, badgeY + badgeH / 2)
+
+    // ----- 分数（居中偏上）-----
     if (this.state === Config.GAME.STATE.PLAYING) {
-      ctx.font = 'bold 36px monospace'
+      ctx.font = 'bold 34px monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.lineWidth = 4
       ctx.strokeStyle = '#000000'
       ctx.fillStyle = '#ffffff'
-      const scoreY = topY + 40
-      ctx.strokeText(this.score, this.screenW / 2, scoreY)
-      ctx.fillText(this.score, this.screenW / 2, scoreY)
+      ctx.fillText(this.score, this.screenW / 2, topY + 16)
     }
 
-    // ----- 经验条 -----
-    const barW = this.screenW * 0.55
-    const barH = 14
-    const barX = (this.screenW - barW) / 2 - 20  // 左移给HP让位
-    const barY = topY + 4
+    // ----- 经验条（居中，分数下方）-----
+    const barW = this.screenW * 0.6
+    const barH = 10
+    const barX = (this.screenW - barW) / 2
+    const barY = topY + 40
 
     ctx.fillStyle = VISUAL.EXP_BAR_BG
     ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4)
 
-    const expData = this.expSystem.getExpBarData()
     const fillW = barW * expData.progress
     ctx.fillStyle = VISUAL.EXP_BAR_FILL
     ctx.fillRect(barX, barY, fillW, barH)
 
     ctx.strokeStyle = '#000000'
-    ctx.lineWidth = 1.5
+    ctx.lineWidth = 1
     ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4)
 
-    ctx.fillStyle = VISUAL.EXP_BAR_TEXT
-    ctx.font = 'bold 11px monospace'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(`Lv.${expData.level}`, barX + barW / 2, barY + barH / 2)
+    // ----- 连击计数 -----
+    const comboLv = this.abilitySystem.owned.get('combo_heart') || 0
+    if (comboLv > 0 && this.abilitySystem.comboCount > 0) {
+      const threshold = this.abilitySystem.getStat('comboThreshold')
+      ctx.font = 'bold 11px monospace'
+      ctx.fillStyle = '#ffaa00'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(`连击 ${this.abilitySystem.comboCount}/${threshold}`, this.screenW / 2, barY + barH + 12)
+    }
 
-    // ----- [v1.1.0] HP 心形显示 -----
-    this._drawHPHearts(barX + barW + 12, barY + barH / 2)
-
-    // ----- [v1.1.0] 能力图标栏（透明度提升） -----
+    // ----- 能力图标栏（底部安全区）-----
     const owned = this.abilitySystem.getOwnedList()
     if (owned.length > 0) {
       const iconSize = 28
       const gap = 6
       const totalW = owned.length * (iconSize + gap) - gap
       const startX = (this.screenW - totalW) / 2
-      const iconY = this.safeBottom - iconSize - 8  // [v1.1.0] 安全区
+      const iconY = this.safeBottom - iconSize - 8
 
       for (let i = 0; i < owned.length; i++) {
         const { def, level } = owned[i]
         const ix = startX + i * (iconSize + gap)
 
-        // [v1.1.0] 透明度从 0.3 提升至 0.6
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
         ctx.beginPath()
         ctx.arc(ix + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, Math.PI * 2)
@@ -968,54 +1071,43 @@ class Game {
     }
   }
 
-  // [v1.1.0] HP 心形渲染
-  _drawHPHearts(x, y) {
+  // [v1.1.1] HP 心形渲染——贝塞尔曲线心形，更大更清晰
+  _drawHPHearts(x, y, size, gap) {
     const ctx = this.ctx
-    const { HP } = Config
-    const size = HP.HEART_SIZE
-    const gap = HP.HEART_GAP
     const maxHp = this.abilitySystem.maxHp
     const currentHp = this.abilitySystem.hp
 
     for (let i = 0; i < maxHp; i++) {
-      const hx = x + i * (size + gap)
+      const cx = x + i * (size + gap) + size / 2
+      const cy = y
       const filled = i < currentHp
+      const s = size / 2
+
+      // 贝塞尔曲线心形
+      ctx.beginPath()
+      ctx.moveTo(cx, cy + s * 0.7)
+      ctx.bezierCurveTo(cx - s * 1.1, cy - s * 0.2, cx - s * 0.9, cy - s * 0.9, cx, cy - s * 0.2)
+      ctx.bezierCurveTo(cx + s * 0.9, cy - s * 0.9, cx + s * 1.1, cy - s * 0.2, cx, cy + s * 0.7)
+      ctx.closePath()
 
       if (filled) {
         ctx.fillStyle = '#ff4444'
       } else {
-        ctx.fillStyle = 'rgba(80, 80, 80, 0.6)'
+        ctx.fillStyle = 'rgba(60, 60, 60, 0.4)'
       }
-
-      // 简化心形：两个圆 + 三角
-      const r = size * 0.3
-      ctx.beginPath()
-      ctx.arc(hx + r, y - r * 0.3, r, 0, Math.PI * 2)
-      ctx.arc(hx + r * 2, y - r * 0.3, r, 0, Math.PI * 2)
       ctx.fill()
 
-      ctx.beginPath()
-      ctx.moveTo(hx, y)
-      ctx.lineTo(hx + r * 3, y)
-      ctx.lineTo(hx + r * 1.5, y + r * 2)
-      ctx.closePath()
-      ctx.fill()
-
-      // 描边
       ctx.strokeStyle = '#000000'
       ctx.lineWidth = 1.5
-      ctx.beginPath()
-      ctx.arc(hx + r, y - r * 0.3, r, 0, Math.PI * 2)
       ctx.stroke()
-      ctx.beginPath()
-      ctx.arc(hx + r * 2, y - r * 0.3, r, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(hx, y)
-      ctx.lineTo(hx + r * 3, y)
-      ctx.lineTo(hx + r * 1.5, y + r * 2)
-      ctx.closePath()
-      ctx.stroke()
+
+      // 高光效果
+      if (filled) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'
+        ctx.beginPath()
+        ctx.arc(cx - s * 0.3, cy - s * 0.3, s * 0.2, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
   }
 
@@ -1037,7 +1129,7 @@ class Game {
         }
       }
     } else if (this.state === Config.GAME.STATE.GAME_OVER) {
-      // [v1.1.0] 检查是否点击重启按钮区域
+      // [v1.1.1] 仅按钮可交互，点击其他区域无效
       if (this._restartBtnBounds) {
         const b = this._restartBtnBounds
         if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
@@ -1045,8 +1137,14 @@ class Game {
           return
         }
       }
-      // 点击其他区域也可重启
-      this.restart()
+      if (this._homeBtnBounds) {
+        const b = this._homeBtnBounds
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+          this.backToReady()
+          return
+        }
+      }
+      // 点击其他区域不做任何操作
     }
   }
 
@@ -1298,28 +1396,44 @@ class Game {
       }
     }
 
-    // [v1.1.0] 重启按钮
-    const btnY = this.safeBottom - 60
-    const btnW = 180
-    const btnH = 44
-    const btnX = (this.screenW - btnW) / 2
+    // [v1.1.1] 双按钮：返回首页 | 重新开始
+    const btnW = 130
+    const btnH = 42
+    const btnGap = 16
+    const totalBtnW = btnW * 2 + btnGap
+    const btnStartX = (this.screenW - totalBtnW) / 2
+    const btnY = this.safeBottom - 56
 
-    this._restartBtnBounds = { x: btnX, y: btnY, w: btnW, h: btnH }
-
-    const blink = Math.floor(this.frameCount / 30) % 2 === 0
-    ctx.fillStyle = blink ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)'
-    this._roundRect(btnX, btnY, btnW, btnH, 8)
+    // 返回首页按钮（左）
+    const homeBtnX = btnStartX
+    this._homeBtnBounds = { x: homeBtnX, y: btnY, w: btnW, h: btnH }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+    this._roundRect(homeBtnX, btnY, btnW, btnH, 8)
     ctx.fill()
-    ctx.strokeStyle = '#ffffff'
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
     ctx.lineWidth = 2
-    this._roundRect(btnX, btnY, btnW, btnH, 8)
+    this._roundRect(homeBtnX, btnY, btnW, btnH, 8)
     ctx.stroke()
-
-    ctx.font = 'bold 16px monospace'
+    ctx.font = 'bold 15px monospace'
     ctx.fillStyle = '#ffffff'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText('点击重新开始', btnX + btnW / 2, btnY + btnH / 2)
+    ctx.fillText('返回首页', homeBtnX + btnW / 2, btnY + btnH / 2)
+
+    // 重新开始按钮（右）
+    const restartBtnX = btnStartX + btnW + btnGap
+    this._restartBtnBounds = { x: restartBtnX, y: btnY, w: btnW, h: btnH }
+    const blink = Math.floor(this.frameCount / 30) % 2 === 0
+    ctx.fillStyle = blink ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)'
+    this._roundRect(restartBtnX, btnY, btnW, btnH, 8)
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 2
+    this._roundRect(restartBtnX, btnY, btnW, btnH, 8)
+    ctx.stroke()
+    ctx.font = 'bold 15px monospace'
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText('重新开始', restartBtnX + btnW / 2, btnY + btnH / 2)
   }
 
   // ==================== 工具方法 ====================

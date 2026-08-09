@@ -133,6 +133,8 @@ class Bird {
       ctx.save()
       ctx.translate(this.x, this.y)
       ctx.rotate(this.rotation)
+      // [v1.1.1] 灵巧能力：视觉体积随碰撞箱同步缩小
+      ctx.scale(this.collisionScale, this.collisionScale)
 
       const r = this.width / 2
 
@@ -191,7 +193,9 @@ class Bird {
     if (showShield) {
       ctx.save()
       ctx.translate(this.x, this.y)
-      const shieldR = this.width / 2 + 8 + Math.sin(Date.now() * 0.005) * 2
+      // [v1.1.1] 护盾半径适配灵巧缩放
+      const baseR = (this.width / 2) * this.collisionScale + 8
+      const shieldR = baseR + Math.sin(Date.now() * 0.005) * 2
       ctx.fillStyle = VISUAL.SHIELD_COLOR
       ctx.beginPath()
       ctx.arc(0, 0, shieldR, 0, Math.PI * 2)

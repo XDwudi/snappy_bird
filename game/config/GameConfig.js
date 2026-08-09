@@ -110,8 +110,8 @@ module.exports = {
     INITIAL_MAX: 2,        // 初始最大HP
     COLLISION_DAMAGE: 1,   // 每次碰撞伤害
     INVINCIBLE_FRAMES: 60, // 受击后无敌帧数(1s)
-    HEART_SIZE: 14,        // 心形图标大小
-    HEART_GAP: 4           // 心形间距
+    HEART_SIZE: 18,        // [v1.1.1] 14→18 心形更大更清晰
+    HEART_GAP: 6           // [v1.1.1] 4→6
   },
 
   // ==================== [v1.1.0] 道具系统 ====================
@@ -135,6 +135,10 @@ module.exports = {
     SHIELD_DURATION: 300,  // 护盾包持续时间(5s=300帧)
     SPEED_PACK_DURATION: 180, // 速度包减速持续时间(3s=180帧)
     SPEED_PACK_SLOWDOWN: 0.5, // 速度包减速比例
+
+    // [v1.1.1] 随机道具刷新
+    RANDOM_SPAWN_INTERVAL: 480, // 随机道具生成间隔(帧), 480≈8s
+    RANDOM_SPAWN_CHANCE: 0.6,   // 到间隔时生成道具的概率
 
     // 道具颜色
     COLORS: {
