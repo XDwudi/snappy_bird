@@ -259,8 +259,13 @@ class Game {
 
   _tick() {
     if (!this.running) return
-    this.update()
-    this.render()
+    try {
+      this.update()
+      this.render()
+    } catch (e) {
+      console.error('[Game] 游戏循环异常:', e)
+      Logger.error('Game', '游戏循环异常', { msg: e.message, stack: e.stack })
+    }
     if (typeof this.canvas.requestAnimationFrame === 'function') {
       this.rafId = this.canvas.requestAnimationFrame(() => this._tick())
     } else if (typeof requestAnimationFrame === 'function') {
@@ -320,6 +325,9 @@ class Game {
     // [v1.2.0] 环境系统更新
     const gameCtx = this._buildGameCtx()
     this.weatherSystem.update(this.gameTime, gameCtx)
+
+    // [v1.2.0] 环境系统可能触发游戏结束或凤凰复活，需检查状态
+    if (this.state !== Config.GAME.STATE.PLAYING || this.phoenixAnim) return
 
     // 读取环境系统输出的属性修饰
     this._weatherGravityBonus = gameCtx.gravityModifier

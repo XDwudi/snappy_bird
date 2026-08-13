@@ -113,6 +113,8 @@ class HailEffect extends WeatherEffect {
     // 统一护盾
     if (abilities.shieldLayers > 0) {
       abilities.consumeShield()
+      abilities.invincibleFrames = 30   // 设置无敌帧，防止同帧多次消耗
+      gameCtx.bird.invincibleBlink = 20
       this._addCrackEffect(hailstone.x, hailstone.y, '#64c8ff')
       gameCtx.addFloatingText(hailstone.x, hailstone.y - 20, '冰雹!', '#a0d0ff', 30)
       return
