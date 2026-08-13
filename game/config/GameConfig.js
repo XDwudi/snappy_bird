@@ -218,6 +218,46 @@ module.exports = {
     }
   },
 
+  // ==================== [v1.2.0] 环境系统 ====================
+  WEATHER: {
+    START_TIME: 1800,          // 30s后开始可能触发
+    CHECK_INTERVAL: 60,        // 每秒检查一次
+    BASE_CHANCE: 0.02,         // 基础概率2%
+    MAX_CHANCE: 0.05,          // 最大概率5%（10分钟时）
+    CHANCE_RAMP_TIME: 36000,   // 概率增长周期(10分钟=36000帧)
+    TRIGGER_COOLDOWN: 600,     // 触发后冷却10s
+    EFFECT_COOLDOWN: 1800,     // 同效果独立冷却30s
+    MAX_SIMULTANEOUS: 2,       // 最多同时2种效果
+
+    WIND: {
+      MIN_DURATION: 900,       // 15s
+      MAX_DURATION: 1800,      // 30s
+      MAX_FORCE: 0.15,         // 最大风力 px/frame²
+      DURATION_RAMP_TIME: 7200 // 持续时间增长周期(2分钟)
+    },
+
+    RAIN: {
+      MIN_DURATION: 1200,      // 20s
+      MAX_DURATION: 2400,      // 40s
+      ACCUMULATION_RATE: 0.3,  // 每帧积累速度
+      FLAP_REDUCTION: 5,       // 每次拍翅减少
+      DRY_RATE: 0.5,           // 雨停后干燥速度（每帧）
+      MAX_GRAVITY_BONUS: 0.5,  // 最大重力增加50%
+      DURATION_RAMP_TIME: 7200
+    },
+
+    HAIL: {
+      MIN_DURATION: 600,       // 10s
+      MAX_DURATION: 1200,      // 20s
+      MIN_SPEED: 5,            // 最小下落速度 px/frame
+      MAX_SPEED: 8,            // 最大下落速度
+      MIN_RADIUS: 4,           // 最小半径
+      MAX_RADIUS: 8,           // 最大半径
+      SPAWN_INTERVAL_PEAK: 20, // 峰值生成间隔(帧)
+      DURATION_RAMP_TIME: 7200
+    }
+  },
+
   // ==================== 云朵参数 ====================
   CLOUD: {
     COUNT: 4,

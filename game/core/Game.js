@@ -1,5 +1,5 @@
 /**
- * Game.js - 游戏主类 [v1.1.5]
+ * Game.js - 游戏主类 [v1.2.0]
  *
  * 职责：游戏主循环、状态机管理、实体协调、碰撞检测、渲染调度。
  * 集成经验系统、能力系统、经验球、道具系统、HP血条、擦边判定。
@@ -9,6 +9,7 @@
  * [v1.1.3] 优化：经验球改为直接获取+文字提示、经验日志、道具前方生成、稀有度概率系统。
  * [v1.1.4] 优化：经验系统统一化(管道经验5→10,删除经验球经验,经验共鸣全经验生效)、浮动文字堆叠渐隐、擦边特效增强(多环+粒子+闪光)、道具图标视觉区分。
  * [v1.1.5] 优化：统一护盾系统(层数机制+视觉区分+弹力护甲改造为弹力护盾)、擦边触发优化(每帧检查+距离25px)、缩小射线间隙增大+管道缩回动画。
+ * [v1.2.0] 新增：环境系统(风/雨/冰雹)、6个环境相关能力、凤凰复活动画、动画特效增强。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -19,6 +20,7 @@ const Orb = require('../entities/Orb.js')
 const Item = require('../entities/Item.js')
 const ExpSystem = require('../systems/ExpSystem.js')
 const AbilitySystem = require('../systems/AbilitySystem.js')
+const WeatherSystem = require('../systems/WeatherSystem.js')
 const Logger = require('../systems/GameLogger.js')
 
 class Game {
@@ -58,6 +60,7 @@ class Game {
     // 系统
     this.expSystem = new ExpSystem()
     this.abilitySystem = new AbilitySystem()
+    this.weatherSystem = new WeatherSystem()   // [v1.2.0] 环境系统
 
     // 计时器
     this.spawnTimer = 0
@@ -76,6 +79,13 @@ class Game {
 
     // [v1.1.0] 受击红屏
     this.damageFlash = 0
+
+    // [v1.2.0] 凤凰复活动画状态
+    this.phoenixAnim = null     // null | { phase: 'pause'|'revive', timer: N, maxTimer: N }
+
+    // [v1.2.0] 环境属性修饰器（每帧由WeatherSystem更新）
+    this._weatherGravityBonus = 0
+    this._weatherWindScroll = 0
 
     // 回调
     this.onScoreChange = null
@@ -139,9 +149,11 @@ class Game {
     this.floatingTexts = []
     this.shakeFrames = 0
     this.damageFlash = 0
+    this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
 
     this.expSystem.reset()
     this.abilitySystem.reset()
+    this.weatherSystem.reset()    // [v1.2.0] 环境系统重置
 
     const birdX = this.screenW * Config.BIRD.X_RATIO
     const birdY = this.screenH * 0.45
@@ -159,6 +171,8 @@ class Game {
       } else {
         this.bird.flap()
       }
+      // [v1.2.0] 通知环境系统拍翅事件（雨效果甩水）
+      this.weatherSystem.onFlap()
     } else if (this.state === Config.GAME.STATE.READY) {
       this.start()
       this.bird.flap()
@@ -180,10 +194,12 @@ class Game {
     this.floatingTexts = []
     this.shakeFrames = 0
     this.damageFlash = 0
+    this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
     this.itemSpawnTimer = 0       // [v1.1.1]
 
     this.expSystem.reset()
     this.abilitySystem.reset()
+    this.weatherSystem.reset()    // [v1.2.0] 环境系统重置
 
     const birdX = this.screenW * Config.BIRD.X_RATIO
     const birdY = this.screenH * 0.45
@@ -276,6 +292,12 @@ class Game {
     this._updateNearMissEffects()
     this._updateFloatingTexts()   // [v1.1.0] 浮动文字
 
+    // [v1.2.0] 凤凰复活动画更新
+    if (this.phoenixAnim) {
+      this._updatePhoenixAnim()
+      return  // 动画期间暂停其他更新
+    }
+
     if (this.state === Config.GAME.STATE.GAME_OVER) return
     if (this.state === Config.GAME.STATE.UPGRADING) return
 
@@ -291,9 +313,34 @@ class Game {
 
     this.gameTime++
 
+    // [v1.2.0] 环境属性修饰器重置
+    this._weatherGravityBonus = 0
+    this._weatherWindScroll = 0
+
+    // [v1.2.0] 环境系统更新
+    const gameCtx = this._buildGameCtx()
+    this.weatherSystem.update(this.gameTime, gameCtx)
+
+    // 读取环境系统输出的属性修饰
+    this._weatherGravityBonus = gameCtx.gravityModifier
+    this._weatherWindScroll = gameCtx.windScrollModifier
+    if (gameCtx.damageFlash > 0) this.damageFlash = gameCtx.damageFlash
+    if (gameCtx.shakeFrames > 0) {
+      this.shakeFrames = gameCtx.shakeFrames
+      this.shakeIntensity = gameCtx.shakeIntensity
+    }
+
+    // [v1.2.0] 通知能力系统环境活跃状态
+    this.abilitySystem.setWeatherActive(this.weatherSystem.activeEffects.length > 0)
+
     // 能力系统更新
     this.abilitySystem.tickCooldowns()
     this._applyAbilityStatsToBird()
+
+    // [v1.2.0] 应用环境重力加成（雨效果）
+    if (this._weatherGravityBonus > 0) {
+      this.bird.gravity = Config.BIRD.GRAVITY * this.abilitySystem.getStat('gravityMultiplier') * (1 + this._weatherGravityBonus)
+    }
 
     // 小鸟物理
     this.bird.update()
@@ -473,6 +520,25 @@ class Game {
     }
   }
 
+  // [v1.2.0] 构建环境系统所需的游戏上下文
+  _buildGameCtx() {
+    return {
+      gameTime: this.gameTime,
+      bird: this.bird,
+      screenW: this.screenW,
+      screenH: this.screenH,
+      abilities: this.abilitySystem,
+      gravityModifier: 0,           // 输出：重力增加比例（由效果写入）
+      windScrollModifier: 0,        // 输出：风力滚动速度修饰（由效果写入）
+      addFloatingText: (x, y, text, color, life) => this._addFloatingText(x, y, text, color, life),
+      triggerPhoenixRevive: () => this._startPhoenixRevive(),
+      triggerGameOver: () => this._gameOver(),
+      damageFlash: 0,
+      shakeFrames: 0,
+      shakeIntensity: 0
+    }
+  }
+
   // ==================== 速度计算 ====================
 
   _getScrollSpeed() {
@@ -489,7 +555,10 @@ class Game {
     // [v1.1.0] 速度包减速
     speed *= this.abilitySystem.getSpeedPackMultiplier()
 
-    return speed
+    // [v1.2.0] 风力影响滚动速度
+    speed += this._weatherWindScroll
+
+    return Math.max(0.5, speed)
   }
 
   _getGapSize() {
@@ -802,12 +871,7 @@ class Game {
     if (dead) {
       // 凤凰复活
       if (this.abilitySystem.tryPhoenix()) {
-        const birdX = this.screenW * Config.BIRD.X_RATIO
-        const birdY = this.screenH * 0.45
-        this.bird.reset(birdX, birdY)
-        this.bird.invincibleBlink = 60
-        this.abilitySystem.invincibleFrames = 120
-        this._addFloatingText(birdX, birdY, '复活!', '#ff6600', 60)
+        this._startPhoenixRevive()
         return false
       }
 
@@ -846,6 +910,148 @@ class Game {
           this.abilitySystem.invincibleFrames = 30  // [v1.1.2] 瞬移后给实际无敌帧防止立即再碰撞
           return
         }
+      }
+    }
+  }
+
+  // [v1.2.0] 凤凰复活动画
+
+  _startPhoenixRevive() {
+    this.phoenixAnim = {
+      phase: 'pause',      // 'pause' → 'revive' → null
+      timer: 60,           // 暂停60帧(1s)
+      maxTimer: 60,
+      particles: []
+    }
+    Logger.info('Ability', '凤凰复活动画开始', { phoenixUsed: this.abilitySystem.phoenixUsed })
+  }
+
+  _updatePhoenixAnim() {
+    const anim = this.phoenixAnim
+    if (!anim) return
+
+    anim.timer--
+
+    if (anim.phase === 'pause') {
+      // 暂停阶段：等待计时结束
+      if (anim.timer <= 0) {
+        // 进入复活动画阶段
+        anim.phase = 'revive'
+        anim.timer = 30
+        anim.maxTimer = 30
+
+        // 重置小鸟到屏幕中间
+        const birdX = this.screenW * Config.BIRD.X_RATIO
+        const birdY = this.screenH * 0.45
+        this.bird.reset(birdX, birdY)
+        this.bird.invincibleBlink = 60
+        this.abilitySystem.invincibleFrames = 120
+
+        // 生成火凤凰粒子
+        for (let i = 0; i < 20; i++) {
+          const angle = (Math.PI * 2 * i) / 20 + Math.random() * 0.3
+          const speed = 2 + Math.random() * 3
+          anim.particles.push({
+            x: birdX,
+            y: birdY,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 30,
+            maxLife: 30,
+            size: 3 + Math.random() * 4,
+            color: Math.random() < 0.5 ? '#ff6600' : '#ffaa00'
+          })
+        }
+      }
+    } else if (anim.phase === 'revive') {
+      // 复活动画阶段：更新粒子
+      for (let i = anim.particles.length - 1; i >= 0; i--) {
+        const p = anim.particles[i]
+        p.x += p.vx
+        p.y += p.vy
+        p.vx *= 0.95
+        p.vy *= 0.95
+        p.life--
+        if (p.life <= 0) {
+          anim.particles.splice(i, 1)
+        }
+      }
+
+      if (anim.timer <= 0) {
+        // 动画结束，恢复游戏
+        this.phoenixAnim = null
+        this._addFloatingText(this.bird.x, this.bird.y, '复活!', '#ff6600', 60)
+        Logger.info('Ability', '凤凰复活完成')
+      }
+    }
+  }
+
+  _drawPhoenixAnim() {
+    const anim = this.phoenixAnim
+    if (!anim) return
+    const ctx = this.ctx
+    const cx = this.bird.x
+    const cy = this.bird.y
+
+    if (anim.phase === 'pause') {
+      // 暂停阶段：暗色遮罩 + 提示文字
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+      ctx.fillRect(0, 0, this.screenW, this.screenH)
+
+      const progress = 1 - anim.timer / anim.maxTimer
+      ctx.font = 'bold 24px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = `rgba(255, 102, 0, ${0.5 + progress * 0.5})`
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 3
+      ctx.strokeText('凤凰复活!', cx, cy - 40)
+      ctx.fillText('凤凰复活!', cx, cy - 40)
+
+      // 凤凰印记图标
+      ctx.font = '32px sans-serif'
+      ctx.fillText('🔥', cx, cy)
+    } else if (anim.phase === 'revive') {
+      // 复活动画：火凤凰翅膀 + 粒子
+      const progress = 1 - anim.timer / anim.maxTimer
+
+      // 火凤凰翅膀（展开→消失）
+      const wingSize = 40 * Math.sin(progress * Math.PI)
+      ctx.save()
+      ctx.translate(cx, cy)
+
+      // 左翅
+      ctx.fillStyle = `rgba(255, 100, 0, ${0.6 * (1 - progress)})`
+      ctx.beginPath()
+      ctx.ellipse(-wingSize * 0.5, 0, wingSize, wingSize * 0.4, -0.3, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 右翅
+      ctx.beginPath()
+      ctx.ellipse(wingSize * 0.5, 0, wingSize, wingSize * 0.4, 0.3, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 中心光晕
+      const glowR = 30 * (1 - progress * 0.5)
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, glowR)
+      grad.addColorStop(0, `rgba(255, 200, 0, ${0.6 * (1 - progress * 0.5)})`)
+      grad.addColorStop(1, 'rgba(255, 100, 0, 0)')
+      ctx.fillStyle = grad
+      ctx.beginPath()
+      ctx.arc(0, 0, glowR, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.restore()
+
+      // 粒子
+      for (const p of anim.particles) {
+        const alpha = p.life / p.maxLife
+        ctx.fillStyle = p.color
+        ctx.globalAlpha = alpha
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.globalAlpha = 1
       }
     }
   }
@@ -906,12 +1112,21 @@ class Game {
     // [v1.1.1] 能力光环特效（磁吸/狂暴/时间扭曲）
     this._drawAbilityAuras()
 
+    // [v1.2.0] 环境效果渲染（在障碍物和小鸟之间）
+    const weatherGameCtx = this._buildGameCtx()
+    this.weatherSystem.render(ctx, this.screenW, this.screenH, weatherGameCtx)
+
     // [v1.1.5] 统一护盾：传递护盾层数给Bird渲染
     const shieldLayers = this.abilitySystem.shieldLayers
     this.bird.render(ctx, shieldLayers)
 
     this._drawGround()
     ctx.restore()
+
+    // [v1.2.0] 凤凰复活动画渲染（在震动恢复后，覆盖层之前）
+    if (this.phoenixAnim) {
+      this._drawPhoenixAnim()
+    }
 
     // [v1.1.0] 受击红屏
     if (this.damageFlash > 0) {
@@ -1185,6 +1400,43 @@ class Game {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(`连击 ${this.abilitySystem.comboCount}/${threshold}`, this.screenW / 2, barY + barH + 12)
+    }
+
+    // ----- [v1.2.0] 环境状态指示器 -----
+    const weatherInfo = this.weatherSystem.getActiveEffectInfo()
+    if (weatherInfo.length > 0) {
+      const icons = { wind: '💨', rain: '🌧️', hail: '🧊' }
+      const colors = { wind: '#ffffff', rain: '#7eb8e0', hail: '#c0d8f0' }
+      const indicatorY = barY + barH + 26
+      let iconX = this.screenW / 2 - (weatherInfo.length - 1) * 30
+
+      for (const info of weatherInfo) {
+        ctx.font = '16px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(icons[info.type] || '?', iconX, indicatorY)
+
+        ctx.font = 'bold 9px monospace'
+        ctx.fillStyle = colors[info.type] || '#ffffff'
+        ctx.fillText(`${info.remaining}s`, iconX, indicatorY + 14)
+
+        iconX += 60
+      }
+    }
+
+    // ----- [v1.2.0] 凤凰印记计数 -----
+    const phoenixLv = this.abilitySystem.owned.get('phoenix') || 0
+    if (phoenixLv > 0) {
+      const remaining = phoenixLv - this.abilitySystem.phoenixUsed
+      const phoenixX = 14 + this.abilitySystem.maxHp * (HP.HEART_SIZE + HP.HEART_GAP)
+      const phoenixY = topY + 14
+      ctx.font = '14px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('🔥', phoenixX, phoenixY)
+      ctx.font = 'bold 11px monospace'
+      ctx.fillStyle = remaining > 0 ? '#ff6600' : '#666666'
+      ctx.fillText(`×${remaining}`, phoenixX + 16, phoenixY)
     }
 
     // ----- 能力图标栏（底部安全区）-----

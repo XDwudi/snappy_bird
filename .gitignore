@@ -1,6 +1,8 @@
 # === 微信小游戏 ===
 # 开发者工具本地配置（含个人 AppID、编译设置等）
 project.private.config.json
+# 项目配置（含 AppID，不应入库）
+project.config.json
 
 # === Node.js ===
 node_modules/

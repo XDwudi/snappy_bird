@@ -1,14 +1,15 @@
 /**
- * AbilitySystem.js - 能力系统核心 [v1.1.5]
+ * AbilitySystem.js - 能力系统核心 [v1.2.0]
  *
  * 职责：
  * - 管理已拥有的能力（id → level）
  * - 提供计算后的属性修饰器给 Game.js 读取
  * - 管理 HP / 最大HP / 受击无敌
  * - [v1.1.5] 统一护盾系统：shieldLayers(当前层数) / maxShieldLayers(最大层数)
- * - 管理主动技能冷却（时间扭曲/瞬移/护盾爆发/自愈/弹力护盾/二段跳）
+ * - 管理主动技能冷却（时间扭曲/瞬移/护盾爆发/自愈/弹力护盾/二段跳/冰晶护体）
  * - 管理道具效果状态（速度包减速）
  * - 连击系统 / 经验共鸣 / 狂暴
+ * - [v1.2.0] 风暴之子：环境效果期间全属性提升
  */
 
 const Config = require('../config/GameConfig.js')
@@ -43,6 +44,7 @@ class AbilitySystem {
     this.regenerationTimer = 0      // [v1.1.0] 自愈计时器
     this.doubleJumpCD = 0           // [v1.1.0] 二段跳CD
     this.lastFlapFrame = -999       // [v1.1.0] 上次拍翅帧（二段跳检测）
+    this.iceCrystalCD = 0           // [v1.2.0] 冰晶护体CD
 
     // 主动技能状态
     this.timeWarpActive = 0
@@ -57,6 +59,9 @@ class AbilitySystem {
 
     // 全属性加成
     this.allBuffLevel = 0
+
+    // [v1.2.0] 环境状态（由WeatherSystem更新，供风暴之子计算）
+    this.weatherActive = false
 
     // 缓存
     this._statsCache = null
@@ -175,6 +180,7 @@ class AbilitySystem {
       expResonanceChance: 0,
       berserkMultiplier: 1.0,
       hasBounceShield: false,  // [v1.1.5] 弹力护盾
+      hasIceCrystal: false,    // [v1.2.0] 冰晶护体
     }
 
     const lv = (id) => this.owned.get(id) || 0
@@ -186,11 +192,18 @@ class AbilitySystem {
     const berserkMul = (this.hp <= 1 && berserkLv > 0) ? (1 + 0.25 * berserkLv) : 1.0
     s.berserkMultiplier = berserkMul
 
+    // [v1.2.0] 风暴之子：环境效果期间全属性提升
+    const stormChildLv = lv('storm_child')
+    const stormMul = (this.weatherActive && stormChildLv > 0) ? (1 + 0.20 * stormChildLv) : 1.0
+
+    // 全属性倍率 = buff × 狂暴 × 风暴之子
+    const totalMul = buffMul * berserkMul * stormMul
+
     // 轻羽: 重力 -8%/级
-    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul * berserkMul
+    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul * berserkMul * stormMul
 
     // 顺风: 上升力 +10%/级
-    s.flapForceMultiplier = (1 + 0.10 * lv('tailwind')) * buffMul * berserkMul
+    s.flapForceMultiplier = (1 + 0.10 * lv('tailwind')) * buffMul * berserkMul * stormMul
 
     // 灵巧: 碰撞箱 -12%/级
     s.collisionScale = Math.max(0.3, 1 - 0.12 * lv('agile'))
@@ -199,13 +212,13 @@ class AbilitySystem {
     s.orbAttractRange = Config.ORB.ATTRACT_RANGE + 50 * lv('magnet')
 
     // 贪婪: 经验获取 +25%/级
-    s.expMultiplier = (1 + 0.25 * lv('greed')) * buffMul * berserkMul
+    s.expMultiplier = (1 + 0.25 * lv('greed')) * buffMul * berserkMul * stormMul
 
     // 慢速世界: 障碍速度 -10%/级
     s.scrollSpeedMultiplier = Math.max(0.5, 1 - 0.10 * lv('slow_world'))
 
     // 双倍积分
-    s.scoreMultiplier = Math.round((1 + lv('double_score')) * buffMul * berserkMul)
+    s.scoreMultiplier = Math.round((1 + lv('double_score')) * buffMul * berserkMul * stormMul)
 
     // 幸运光环
     s.bonusChoices = lv('lucky')
@@ -236,12 +249,22 @@ class AbilitySystem {
     // [v1.1.5] 弹力护盾（统一护盾系统，不再有独立充能）
     s.hasBounceShield = lv('bounce_shield') > 0
     s.hasDoubleJump = lv('double_jump') > 0
+    // [v1.2.0] 冰晶护体
+    s.hasIceCrystal = lv('ice_crystal') > 0
 
     return s
   }
 
   invalidateStats() {
     this._statsCache = null
+  }
+
+  // [v1.2.0] 设置环境活跃状态（由Game.js每帧调用）
+  setWeatherActive(active) {
+    if (this.weatherActive !== active) {
+      this.weatherActive = active
+      this.invalidateStats()
+    }
   }
 
   // ==================== 每帧更新 ====================
@@ -251,6 +274,7 @@ class AbilitySystem {
     if (this.teleportCD > 0) this.teleportCD--
     if (this.timeWarpActive > 0) this.timeWarpActive--
     if (this.doubleJumpCD > 0) this.doubleJumpCD--
+    if (this.iceCrystalCD > 0) this.iceCrystalCD--  // [v1.2.0] 冰晶护体CD
     if (this.invincibleFrames > 0) this.invincibleFrames--
     if (this.speedPackFrames > 0) this.speedPackFrames--
 

@@ -1,9 +1,10 @@
 /**
- * AbilityConfig.js - 能力数据配置 [v1.1.3]
+ * AbilityConfig.js - 能力数据配置 [v1.2.0]
  *
- * 共22个能力：被动8 + 主动7 + 特殊7
+ * 共28个能力：被动11 + 主动8 + 特殊9
  * v1.1.0变更：提升15个旧能力等级上限 + 新增7个能力
- * v1.1.3变更：为每个能力添加稀有度(rarity)，用于升级选牌概率计算
+ * v1.1.3变更：为每个能力添加稀有度(rarity)
+ * v1.2.0变更：新增6个环境相关能力
  */
 
 const ABILITY = require('./GameConfig.js').ABILITY
@@ -104,6 +105,47 @@ const Abilities = [
     maxLevel: 3,
     effectText: (lv) => `受击无敌 +${lv * 0.5}s`
   },
+  // [v1.2.0新增] 环境相关被动能力
+  {
+    id: 'wind_reader',
+    name: '顺风耳',
+    icon: '👂',
+    desc: '风力影响减弱',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'common',
+    maxLevel: 3,
+    effectText: (lv) => `风力影响 -${30 * lv}%`
+  },
+  {
+    id: 'raincoat',
+    name: '雨衣',
+    icon: '🧥',
+    desc: '雨水积累速度降低',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'uncommon',
+    maxLevel: 3,
+    effectText: (lv) => `雨水积累 -${40 * lv}%`
+  },
+  {
+    id: 'wind_rider',
+    name: '御风者',
+    icon: '🪁',
+    desc: '风力转化为助推力',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'rare',
+    maxLevel: 3,
+    effectText: (lv) => `风力变助推 +${50 * lv}%`
+  },
+  {
+    id: 'climate_adapt',
+    name: '气候适应',
+    icon: '🌡️',
+    desc: '缩短环境效果持续时间',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'rare',
+    maxLevel: 3,
+    effectText: (lv) => `环境持续时间 -${15 * lv}%`
+  },
 
   // ==================== 主动技能类 (7) ====================
   {
@@ -178,6 +220,17 @@ const Abilities = [
     rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 2,
     effectText: (lv) => `二段跳，CD ${15 - 5 * (lv - 1)}s`
+  },
+  // [v1.2.0新增] 冰晶护体
+  {
+    id: 'ice_crystal',
+    name: '冰晶护体',
+    icon: '❄️',
+    desc: '冰雹击中时获得护盾',
+    category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'rare',
+    maxLevel: 3,
+    effectText: (lv) => `冰雹转为护盾，CD ${20 - 3 * (lv - 1)}s`
   },
 
   // ==================== 特殊机制类 (7) ====================
@@ -255,6 +308,17 @@ const Abilities = [
     rarity: 'epic',          // [v1.1.3]
     maxLevel: 3,
     effectText: (lv) => `HP=1时，全属性 +${25 * lv}%`
+  },
+  // [v1.2.0新增] 风暴之子
+  {
+    id: 'storm_child',
+    name: '风暴之子',
+    icon: '🌩️',
+    desc: '环境效果期间全属性提升',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 3,
+    effectText: (lv) => `环境期间全属性 +${20 * lv}%`
   }
 ]
 
