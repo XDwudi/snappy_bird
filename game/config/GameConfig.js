@@ -221,9 +221,9 @@ module.exports = {
   // ==================== [v1.2.0] 环境系统 ====================
   WEATHER: {
     START_TIME: 1800,          // 30s后开始可能触发
-    CHECK_INTERVAL: 60,        // 每秒检查一次
-    BASE_CHANCE: 0.02,         // 基础概率2%
-    MAX_CHANCE: 0.05,          // 最大概率5%（10分钟时）
+    CHECK_INTERVAL: 600,       // 每10秒检查一次
+    BASE_CHANCE: 0.20,         // 基础概率20%
+    MAX_CHANCE: 0.50,          // 最大概率50%（10分钟时）
     CHANCE_RAMP_TIME: 36000,   // 概率增长周期(10分钟=36000帧)
     TRIGGER_COOLDOWN: 600,     // 触发后冷却10s
     EFFECT_COOLDOWN: 1800,     // 同效果独立冷却30s
