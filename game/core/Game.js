@@ -1632,7 +1632,8 @@ class Game {
 
     for (let i = 0; i < n; i++) {
       const ab = choices[i]
-      const currentLevel = ownedList.find(o => o.def.id === ab.id)?.level || 0
+      const _found = ownedList.find(o => o.def.id === ab.id)
+      const currentLevel = (_found ? _found.level : 0) || 0
       const cardX = startX + i * (cardW + gap)
 
       this._cardBounds.push({ x: cardX, y: cardY, w: cardW, h: cardH, id: ab.id })
