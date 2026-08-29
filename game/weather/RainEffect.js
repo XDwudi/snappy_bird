@@ -22,12 +22,12 @@ class RainEffect extends WeatherEffect {
 
   onTrigger(gameCtx) {
     super.onTrigger(gameCtx)
-    this.duration = this.getDuration(gameCtx.gameTime)
+    this.duration = this.getDuration(gameCtx.gameTime, gameCtx)
     this.drops = []
     this.splashParticles = []
   }
 
-  getDuration(gameTime) {
+  getDuration(gameTime, gameCtx) {
     const R = Config.WEATHER.RAIN
     const t = Math.min(1, gameTime / R.DURATION_RAMP_TIME)
     const adaptLv = gameCtx.abilities.owned.get('climate_adapt') || 0

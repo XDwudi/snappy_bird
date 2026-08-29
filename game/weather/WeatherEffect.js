@@ -7,7 +7,7 @@
  * - update(gameCtx) - 每帧更新
  * - onExpire(gameCtx) - 结束时
  * - render(ctx, screenW, screenH) - 渲染
- * - getDuration(gameTime) - 获取持续时间
+ * - getDuration(gameTime, gameCtx) - 获取持续时间
  *
  * 未来扩展时，新增环境效果只需继承并实现上述方法。
  */
@@ -64,9 +64,10 @@ class WeatherEffect {
   /**
    * 获取持续时间（子类实现，基于游戏时长）
    * @param {number} gameTime - 游戏时长（帧）
+   * @param {Object} gameCtx - 游戏上下文
    * @returns {number} 持续时间（帧）
    */
-  getDuration(gameTime) {
+  getDuration(gameTime, gameCtx) {
     return 600
   }
 

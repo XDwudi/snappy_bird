@@ -23,11 +23,11 @@ class WindEffect extends WeatherEffect {
     super.onTrigger(gameCtx)
     this.isVertical = Math.random() < 0.5
     this.direction = Math.random() < 0.5 ? 1 : -1
-    this.duration = this.getDuration(gameCtx.gameTime)
+    this.duration = this.getDuration(gameCtx.gameTime, gameCtx)
     this.particles = []
   }
 
-  getDuration(gameTime) {
+  getDuration(gameTime, gameCtx) {
     const W = Config.WEATHER.WIND
     const t = Math.min(1, gameTime / W.DURATION_RAMP_TIME)
     // 气候适应能力缩减持续时间

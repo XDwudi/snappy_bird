@@ -20,12 +20,12 @@ class HailEffect extends WeatherEffect {
 
   onTrigger(gameCtx) {
     super.onTrigger(gameCtx)
-    this.duration = this.getDuration(gameCtx.gameTime)
+    this.duration = this.getDuration(gameCtx.gameTime, gameCtx)
     this.hailstones = []
     this.crackEffects = []
   }
 
-  getDuration(gameTime) {
+  getDuration(gameTime, gameCtx) {
     const H = Config.WEATHER.HAIL
     const t = Math.min(1, gameTime / H.DURATION_RAMP_TIME)
     const adaptLv = gameCtx.abilities.owned.get('climate_adapt') || 0
