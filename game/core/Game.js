@@ -275,6 +275,13 @@ class Game {
       this.rafId = this.canvas.requestAnimationFrame(() => this._tick())
     } else if (typeof requestAnimationFrame === 'function') {
       this.rafId = requestAnimationFrame(() => this._tick())
+    } else {
+      // [v1.2.1] rAF双缺失兜底：setTimeout(~60fps)维持循环，避免静默终止
+      if (!this._rafFallbackWarned) {
+        this._rafFallbackWarned = true
+        Logger.warn('Game', 'requestAnimationFrame不可用，改用setTimeout(16ms)兜底')
+      }
+      this.rafId = setTimeout(() => this._tick(), 16)
     }
   }
 
@@ -285,6 +292,8 @@ class Game {
         this.canvas.cancelAnimationFrame(this.rafId)
       } else if (typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this.rafId)
+      } else {
+        clearTimeout(this.rafId)  // [v1.2.1] 兜底计时器清理
       }
       this.rafId = null
     }
