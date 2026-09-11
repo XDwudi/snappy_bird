@@ -91,6 +91,9 @@ class WeatherSystem {
     // 4. 雨效果结束后继续干燥
     if (this.rainResidual) {
       this.rainResidual.dry(Config.WEATHER.RAIN.DRY_RATE)
+      // [v1.2.1] 干燥期间按当前rainLevel比例回写重力修饰，雨停后重力平滑归零
+      gameCtx.gravityModifier +=
+        (this.rainResidual.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
       if (this.rainResidual.rainLevel <= 0 && this.rainResidual.splashParticles.length === 0) {
         this.rainResidual = null
       }
