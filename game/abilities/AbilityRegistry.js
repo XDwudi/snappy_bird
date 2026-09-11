@@ -10,6 +10,7 @@
 
 const Abilities = require('../config/AbilityConfig.js')
 const Config = require('../config/GameConfig.js')
+const Logger = require('../systems/GameLogger.js')
 
 class AbilityRegistry {
   constructor() {
@@ -18,6 +19,15 @@ class AbilityRegistry {
     for (const ab of Abilities) {
       this.abilityMap[ab.id] = ab
     }
+    // [v1.2.2] N9 软保底：连续无稀有及以上卡的升级面板计数
+    this._noRareStreak = 0
+  }
+
+  /**
+   * [v1.2.2] N9 新局开始时重置软保底计数（由AbilitySystem.reset调用）
+   */
+  resetPity() {
+    this._noRareStreak = 0
   }
 
   /**
@@ -89,7 +99,9 @@ class AbilityRegistry {
 
     // 不足指定数量时返回全部
     if (candidates.length <= count) {
-      return candidates.map(c => c.ability)
+      const all = candidates.map(c => c.ability)
+      this._applyPity(all, candidates)
+      return all
     }
 
     // 加权随机不放回抽取
@@ -113,7 +125,46 @@ class AbilityRegistry {
       pool.splice(pickedIndex, 1)
     }
 
+    // [v1.2.2] N9 软保底检查
+    this._applyPity(result, candidates)
+
     return result
+  }
+
+  /**
+   * [v1.2.2] N9 非酋软保底：连续 PITY_THRESHOLD 次升级面板无稀有及以上卡时，
+   * 下一面板保底替换 1 张为稀有+（uncommon/rare/epic）候选；
+   * 面板含稀有+时计数清零。无可保底候选（稀有+全满级）时继续计数。
+   * @param {Object[]} result - 已抽取结果（原地修改）
+   * @param {Object[]} candidates - 全部候选 [{ability, weight}]
+   */
+  _applyPity(result, candidates) {
+    const isRarePlus = (ab) => (ab.rarity || 'common') !== 'common'
+    const hasRarePlus = result.some(isRarePlus)
+
+    if (hasRarePlus) {
+      this._noRareStreak = 0
+      return
+    }
+
+    if (this._noRareStreak >= Config.ABILITY.PITY_THRESHOLD && result.length > 0) {
+      // 保底触发：从稀有+候选中随机选1张替换掉结果中的1张
+      const resultIds = {}
+      for (const ab of result) resultIds[ab.id] = true
+      const rarePool = candidates.filter(c => isRarePlus(c.ability) && !resultIds[c.ability.id])
+
+      if (rarePool.length > 0) {
+        const picked = rarePool[Math.floor(Math.random() * rarePool.length)].ability
+        const slot = Math.floor(Math.random() * result.length)
+        result[slot] = picked
+        Logger.info('Ability', '软保底触发', { streak: this._noRareStreak, guaranteed: picked.id })
+        this._noRareStreak = 0
+        return
+      }
+      // 无稀有+候选可保底（全满级），继续累计
+    }
+
+    this._noRareStreak++
   }
 }
 
