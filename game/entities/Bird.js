@@ -126,68 +126,66 @@ class Bird {
   render(ctx, shieldLayers) {
     const { BIRD, VISUAL } = Config
 
-    // 无敌闪烁效果
-    if (this.invincibleBlink > 0 && Math.floor(this.invincibleBlink / 4) % 2 === 0) {
-      // 闪烁帧跳过渲染
-    } else {
-      ctx.save()
-      ctx.translate(this.x, this.y)
-      ctx.rotate(this.rotation)
-      // [v1.1.1] 灵巧能力：视觉体积随碰撞箱同步缩小
-      ctx.scale(this.collisionScale, this.collisionScale)
+    // [v1.2.1] 无敌闪烁改为50%半透明渲染（原整帧消失，玩家易迷失位置）
+    const blinking = this.invincibleBlink > 0 && Math.floor(this.invincibleBlink / 4) % 2 === 0
+    ctx.save()
+    if (blinking) ctx.globalAlpha = 0.5
+    ctx.translate(this.x, this.y)
+    ctx.rotate(this.rotation)
+    // [v1.1.1] 灵巧能力：视觉体积随碰撞箱同步缩小
+    ctx.scale(this.collisionScale, this.collisionScale)
 
-      const r = this.width / 2
+    const r = this.width / 2
 
-      // ---- 身体 ----
-      ctx.fillStyle = VISUAL.BIRD_BODY
-      ctx.beginPath()
-      ctx.arc(0, 0, r, 0, Math.PI * 2)
-      ctx.fill()
+    // ---- 身体 ----
+    ctx.fillStyle = VISUAL.BIRD_BODY
+    ctx.beginPath()
+    ctx.arc(0, 0, r, 0, Math.PI * 2)
+    ctx.fill()
 
-      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-      ctx.lineWidth = 2
-      ctx.stroke()
+    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+    ctx.lineWidth = 2
+    ctx.stroke()
 
-      // ---- 翅膀 ----
-      const wingOffsets = [-5, 0, 5]
-      const wingY = wingOffsets[this.wingFrame]
-      ctx.fillStyle = VISUAL.BIRD_WING
-      ctx.beginPath()
-      ctx.ellipse(-5, wingY, 10, 7, 0, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-      ctx.lineWidth = 1.5
-      ctx.stroke()
+    // ---- 翅膀 ----
+    const wingOffsets = [-5, 0, 5]
+    const wingY = wingOffsets[this.wingFrame]
+    ctx.fillStyle = VISUAL.BIRD_WING
+    ctx.beginPath()
+    ctx.ellipse(-5, wingY, 10, 7, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+    ctx.lineWidth = 1.5
+    ctx.stroke()
 
-      // ---- 眼睛 ----
-      ctx.fillStyle = VISUAL.BIRD_EYE
-      ctx.beginPath()
-      ctx.arc(8, -6, 5, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-      ctx.lineWidth = 1.5
-      ctx.stroke()
+    // ---- 眼睛 ----
+    ctx.fillStyle = VISUAL.BIRD_EYE
+    ctx.beginPath()
+    ctx.arc(8, -6, 5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+    ctx.lineWidth = 1.5
+    ctx.stroke()
 
-      // 瞳孔
-      ctx.fillStyle = VISUAL.BIRD_PUPIL
-      ctx.beginPath()
-      ctx.arc(10, -6, 2, 0, Math.PI * 2)
-      ctx.fill()
+    // 瞳孔
+    ctx.fillStyle = VISUAL.BIRD_PUPIL
+    ctx.beginPath()
+    ctx.arc(10, -6, 2, 0, Math.PI * 2)
+    ctx.fill()
 
-      // ---- 喙 ----
-      ctx.fillStyle = VISUAL.BIRD_BEAK
-      ctx.beginPath()
-      ctx.moveTo(12, 0)
-      ctx.lineTo(22, -2)
-      ctx.lineTo(12, 4)
-      ctx.closePath()
-      ctx.fill()
-      ctx.strokeStyle = VISUAL.BIRD_OUTLINE
-      ctx.lineWidth = 1.5
-      ctx.stroke()
+    // ---- 喙 ----
+    ctx.fillStyle = VISUAL.BIRD_BEAK
+    ctx.beginPath()
+    ctx.moveTo(12, 0)
+    ctx.lineTo(22, -2)
+    ctx.lineTo(12, 4)
+    ctx.closePath()
+    ctx.fill()
+    ctx.strokeStyle = VISUAL.BIRD_OUTLINE
+    ctx.lineWidth = 1.5
+    ctx.stroke()
 
-      ctx.restore()
-    }
+    ctx.restore()
 
     // [v1.1.5] 统一护盾：N层护盾显示N个同心圆圈
     if (shieldLayers > 0) {
