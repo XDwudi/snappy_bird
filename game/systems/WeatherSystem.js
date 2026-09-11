@@ -108,7 +108,11 @@ class WeatherSystem {
     // 检查触发冷却
     if (this.triggerCooldown > 0) return
     // 检查最大同时效果数
-    if (this.activeEffects.length >= Config.WEATHER.MAX_SIMULTANEOUS) return
+    // [v1.2.2] N5 终局加压：240s后并发上限 2→3（按游戏时长动态取上限）
+    const maxSimultaneous = gameTime >= Config.WEATHER.LATE_GAME_TIME
+      ? Config.WEATHER.MAX_SIMULTANEOUS_LATE
+      : Config.WEATHER.MAX_SIMULTANEOUS
+    if (this.activeEffects.length >= maxSimultaneous) return
 
     // 计算触发概率
     const W = Config.WEATHER
