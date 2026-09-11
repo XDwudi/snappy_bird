@@ -11,6 +11,8 @@
  * [v1.1.5] 优化：统一护盾系统(层数机制+视觉区分+弹力护甲改造为弹力护盾)、擦边触发优化(每帧检查+距离25px)、缩小射线间隙增大+管道缩回动画。
  * [v1.2.0] 新增：环境系统(风/雨/冰雹)、6个环境相关能力、凤凰复活动画、动画特效增强。
  * [v1.2.1] 修复：第二段难度缓坡、升级面板6卡两行排布、rAF双缺失setTimeout兜底、天气18s起+教学提示。
+ * [v1.2.2] 修复：无敌期不累计combo+护盾消耗断连击(N1)、瞬移优先于时间扭曲(N4)、管道间隔ramp(N5)、
+ *           升级面板跳过按钮(N6)、自愈/护盾/二段跳/风暴之子内联特效(N7)、磁吸锁定吸附(B1)、升级保护双保险(B2)。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -57,6 +59,7 @@ class Game {
     this.clouds = []
     this.nearMissEffects = []
     this.floatingTexts = []       // [v1.1.0] 浮动文字（道具拾取提示）
+    this.abilityEffects = []      // [v1.2.2] N7 能力内联特效粒子（自愈十字/护盾环/二段跳尾迹）
 
     // 系统
     this.expSystem = new ExpSystem()
@@ -104,6 +107,7 @@ class Game {
 
     // 升级选项缓存
     this._currentChoices = null
+    this._skipBtnBounds = null    // [v1.2.2] N6 升级面板跳过按钮区域
 
     this._init()
   }
@@ -151,6 +155,8 @@ class Game {
     this.items = []
     this.nearMissEffects = []
     this.floatingTexts = []
+    this.abilityEffects = []      // [v1.2.2] N7
+    this._skipBtnBounds = null    // [v1.2.2] N6
     this.shakeFrames = 0
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
@@ -173,6 +179,7 @@ class Game {
       // [v1.1.0] 二段跳检测：快速双击时触发
       if (this.abilitySystem.tryDoubleJump(this.frameCount)) {
         this.bird.doubleJump()
+        this._spawnDoubleJumpTrail()  // [v1.2.2] N7 二段跳白色尾迹粒子
       } else {
         this.bird.flap()
       }
@@ -197,6 +204,8 @@ class Game {
     this.items = []
     this.nearMissEffects = []
     this.floatingTexts = []
+    this.abilityEffects = []      // [v1.2.2] N7
+    this._skipBtnBounds = null    // [v1.2.2] N6
     this.shakeFrames = 0
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
@@ -241,6 +250,20 @@ class Game {
     this.abilitySystem.invalidateStats()
     this.expSystem.consumeLevelUp()
     this._currentChoices = null
+    this._skipBtnBounds = null    // [v1.2.2] N6
+    this._afterUpgrade()
+  }
+
+  /**
+   * [v1.2.2] N6 跳过本次选卡：放弃选卡并获得少量经验（走正常_gainExp流程，可能连锁升级）
+   */
+  _skipUpgrade() {
+    Logger.info('LevelUp', '跳过选卡', { level: this.expSystem.level, skipExp: Config.UPGRADE.SKIP_EXP })
+    const stats = this.abilitySystem.getStats()
+    this._gainExp(Config.UPGRADE.SKIP_EXP, 'skip_upgrade', stats)
+    this.expSystem.consumeLevelUp()
+    this._currentChoices = null
+    this._skipBtnBounds = null
     this._afterUpgrade()
   }
 
@@ -248,6 +271,12 @@ class Game {
     if (this.expSystem.hasPendingLevelUp()) {
       this._triggerLevelUp()
     } else {
+      // [v1.2.2] B2-② 恢复保护：面板关闭后给短暂无敌+垂直速度清零，防止"选完即撞"
+      this.abilitySystem.invincibleFrames = Math.max(
+        this.abilitySystem.invincibleFrames, Config.UPGRADE.RESUME_INVINCIBLE_FRAMES
+      )
+      this.bird.invincibleBlink = Math.max(this.bird.invincibleBlink, 30)
+      this.bird.velocity = 0
       this.state = Config.GAME.STATE.PLAYING
       if (this.onExpChange) {
         this.onExpChange(this.expSystem.getExpBarData())
@@ -311,6 +340,7 @@ class Game {
 
     this._updateNearMissEffects()
     this._updateFloatingTexts()   // [v1.1.0] 浮动文字
+    this._updateAbilityEffects()  // [v1.2.2] N7 能力内联特效
 
     // [v1.2.0] 凤凰复活动画更新
     if (this.phoenixAnim) {
@@ -359,6 +389,7 @@ class Game {
     // 能力系统更新
     this.abilitySystem.tickCooldowns()
     this._applyAbilityStatsToBird()
+    this._drainAbilityFx()        // [v1.2.2] N7 取出能力系统的特效事件
 
     // [v1.2.1] 首次获得护盾教学提示（道具/能力/冰晶护体等所有来源统一覆盖，每局只提示一次）
     if (!this._shieldHintShown && this.abilitySystem.shieldLayers > 0) {
@@ -376,7 +407,7 @@ class Game {
 
     // 生成管道
     this.spawnTimer++
-    if (this.spawnTimer >= Config.PIPE.SPAWN_INTERVAL) {
+    if (this.spawnTimer >= this._getSpawnInterval()) {  // [v1.2.2] N5 间隔随时间收紧
       this._spawnPipe()
       this.spawnTimer = 0
     }
@@ -483,8 +514,36 @@ class Game {
 
     // 升级检查
     if (this.expSystem.hasPendingLevelUp()) {
-      this._triggerLevelUp()
+      // [v1.2.2] B2-① 延后弹板：等小鸟安全越过最近管道右边缘+安全边距再进UPGRADING，
+      // 避免"过管瞬间弹板、关板即撞下一管"
+      if (this._isUpgradeSafeZone()) {
+        this._triggerLevelUp()
+      }
     }
+  }
+
+  /**
+   * [v1.2.2] B2-① 判断当前是否处于安全区：所有管道右边缘+安全边距都已被小鸟越过
+   * @returns {boolean}
+   */
+  _isUpgradeSafeZone() {
+    const margin = Config.UPGRADE.SAFE_MARGIN_PX
+    const birdLeft = this.bird.x - this.bird.collisionWidth / 2
+    for (const pipe of this.pipes) {
+      if (pipe.x + pipe.width + margin > birdLeft) return false
+    }
+    return true
+  }
+
+  /**
+   * [v1.2.2] N5 管道生成间隔 ramp：120s起从90帧线性收紧，至300s达75帧下限
+   * @returns {number} 当前生成间隔（帧）
+   */
+  _getSpawnInterval() {
+    const P = Config.PIPE
+    if (this.gameTime <= P.SPAWN_RAMP_START) return P.SPAWN_INTERVAL
+    const t = Math.min(1, (this.gameTime - P.SPAWN_RAMP_START) / P.SPAWN_RAMP_TIME)
+    return Math.round(P.SPAWN_INTERVAL + (P.SPAWN_INTERVAL_MIN - P.SPAWN_INTERVAL) * t)
   }
 
   _updateClouds() {
@@ -534,6 +593,87 @@ class Game {
       }
       t.life--
       if (t.life <= 0) this.floatingTexts.splice(i, 1)
+    }
+  }
+
+  // ==================== [v1.2.2] N7 能力内联特效 ====================
+  // 轻量实现：粒子数组+浮动文字，与擦边特效同风格，不引入EffectManager
+
+  /**
+   * [v1.2.2] N7 取出AbilitySystem的特效事件并生成内联特效
+   * （自愈=绿色十字粒子+"+1HP"文字；护盾获得=蓝色闪光环）
+   */
+  _drainAbilityFx() {
+    const fx = this.abilitySystem.fxEvents
+    if (!fx || fx.length === 0) return
+
+    for (const ev of fx) {
+      if (ev.type === 'regen') {
+        // 自愈：绿色十字粒子从小鸟身上向外扩散
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 * i) / 8 + Math.random() * 0.4
+          const speed = 1 + Math.random() * 1.5
+          this.abilityEffects.push({
+            kind: 'cross',
+            x: this.bird.x,
+            y: this.bird.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 0.5,  // 略向上飘
+            life: 30,
+            maxLife: 30,
+            size: 3 + Math.random() * 2,
+            color: '94, 226, 112'  // 绿色
+          })
+        }
+        this._addFloatingText(this.bird.x, this.bird.y - 35, '+1 HP', '#5ee270', 45)
+      } else if (ev.type === 'shield') {
+        // 护盾获得：蓝色闪光环从小鸟扩散
+        this.abilityEffects.push({
+          kind: 'ring',
+          x: this.bird.x,
+          y: this.bird.y,
+          vx: 0,
+          vy: 0,
+          life: 24,
+          maxLife: 24,
+          size: this.bird.width * 0.6,  // 起始半径
+          color: '100, 200, 255'        // 蓝色
+        })
+      }
+    }
+
+    fx.length = 0
+  }
+
+  /**
+   * [v1.2.2] N7 二段跳白色尾迹粒子
+   */
+  _spawnDoubleJumpTrail() {
+    for (let i = 0; i < 6; i++) {
+      this.abilityEffects.push({
+        kind: 'dot',
+        x: this.bird.x - 6 - Math.random() * 8,
+        y: this.bird.y + 4 + Math.random() * 6,
+        vx: -0.5 - Math.random() * 1,
+        vy: 1 + Math.random() * 1.5,  // 向下飘散（小鸟在向上冲）
+        life: 22,
+        maxLife: 22,
+        size: 2 + Math.random() * 2,
+        color: '255, 255, 255'  // 白色
+      })
+    }
+  }
+
+  /**
+   * [v1.2.2] N7 能力特效粒子更新（在状态判断前调用，升级面板期间也能播完）
+   */
+  _updateAbilityEffects() {
+    for (let i = this.abilityEffects.length - 1; i >= 0; i--) {
+      const p = this.abilityEffects[i]
+      p.x += p.vx
+      p.y += p.vy
+      p.life--
+      if (p.life <= 0) this.abilityEffects.splice(i, 1)
     }
   }
 
@@ -942,8 +1082,8 @@ class Game {
       const minDist = Math.min(distToTop, distToBottom)
 
       if (minDist < 8 && minDist > 0) {
-        if (this.abilitySystem.tryTimeWarp()) return
-
+        // [v1.2.2] N4 瞬移（史诗）优先判定，解除时间扭曲对瞬移的遮蔽；
+        // 二者独立CD，各自可触发
         if (this.abilitySystem.tryTeleport()) {
           this.bird.y = pipe.topHeight + pipe.gap / 2
           this.bird.velocity = 0
@@ -951,6 +1091,8 @@ class Game {
           this.abilitySystem.invincibleFrames = 30  // [v1.1.2] 瞬移后给实际无敌帧防止立即再碰撞
           return
         }
+
+        if (this.abilitySystem.tryTimeWarp()) return
       }
     }
   }
@@ -1153,6 +1295,9 @@ class Game {
     // [v1.1.1] 能力光环特效（磁吸/狂暴/时间扭曲）
     this._drawAbilityAuras()
 
+    // [v1.2.2] N7 能力内联特效（自愈十字/护盾环/二段跳尾迹）
+    this._drawAbilityEffects()
+
     // [v1.2.0] 环境效果渲染（在障碍物和小鸟之间）
     const weatherGameCtx = this._buildGameCtx()
     this.weatherSystem.render(ctx, this.screenW, this.screenH, weatherGameCtx)
@@ -1325,6 +1470,60 @@ class Game {
     if (this.abilitySystem.timeWarpActive > 0) {
       ctx.fillStyle = 'rgba(100, 150, 255, 0.08)'
       ctx.fillRect(0, 0, this.screenW, this.screenH)
+    }
+
+    // [v1.2.2] N7 风暴之子金色光环——环境效果期间生效
+    const stormLv = this.abilitySystem.owned.get('storm_child') || 0
+    if (stormLv > 0 && this.abilitySystem.weatherActive) {
+      ctx.save()
+      ctx.translate(this.bird.x, this.bird.y)
+      const pulse = Math.sin(this.frameCount * 0.15) * 0.3 + 0.7
+      const auraR = this.bird.width * 0.9 + pulse * 4
+      ctx.fillStyle = `rgba(255, 215, 0, ${0.12 * pulse})`
+      ctx.beginPath()
+      ctx.arc(0, 0, auraR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = `rgba(255, 215, 0, ${0.55 * pulse})`
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+
+  /**
+   * [v1.2.2] N7 能力内联特效渲染（粒子/扩散环，与擦边特效同风格）
+   */
+  _drawAbilityEffects() {
+    const ctx = this.ctx
+    for (const p of this.abilityEffects) {
+      const alpha = p.life / p.maxLife
+      if (p.kind === 'ring') {
+        // 蓝色闪光环：半径随生命扩散
+        const progress = 1 - alpha
+        const radius = p.size + progress * 26
+        ctx.strokeStyle = `rgba(${p.color}, ${alpha * 0.9})`
+        ctx.lineWidth = 2.5
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2)
+        ctx.stroke()
+      } else if (p.kind === 'cross') {
+        // 绿色十字粒子
+        const s = p.size
+        ctx.strokeStyle = `rgba(${p.color}, ${alpha})`
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(p.x - s, p.y)
+        ctx.lineTo(p.x + s, p.y)
+        ctx.moveTo(p.x, p.y - s)
+        ctx.lineTo(p.x, p.y + s)
+        ctx.stroke()
+      } else {
+        // 白色尾迹圆点
+        ctx.fillStyle = `rgba(${p.color}, ${alpha * 0.8})`
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
   }
 
@@ -1571,6 +1770,14 @@ class Game {
           }
         }
       }
+      // [v1.2.2] N6 跳过按钮：放弃本次选卡并获得少量经验
+      if (this._skipBtnBounds) {
+        const b = this._skipBtnBounds
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+          this._skipUpgrade()
+          return
+        }
+      }
     } else if (this.state === Config.GAME.STATE.GAME_OVER) {
       // [v1.1.1] 仅按钮可交互，点击其他区域无效
       if (this._restartBtnBounds) {
@@ -1683,6 +1890,26 @@ class Game {
       this._cardBounds.push({ x: cardX, y: thisCardY, w: cardW, h: cardH, id: ab.id })
       this._drawCard(cardX, thisCardY, cardW, cardH, ab, currentLevel)
     }
+
+    // [v1.2.2] N6 跳过按钮：卡牌下方，低调样式；点击放弃本次选卡并获得少量经验
+    const skipW = 130
+    const skipH = 30
+    const skipX = (this.screenW - skipW) / 2
+    const skipY = cardY + totalH + 16
+    this._skipBtnBounds = { x: skipX, y: skipY, w: skipW, h: skipH }
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
+    this._roundRect(skipX, skipY, skipW, skipH, 8)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+    ctx.lineWidth = 1
+    this._roundRect(skipX, skipY, skipW, skipH, 8)
+    ctx.stroke()
+    ctx.font = '12px monospace'
+    ctx.fillStyle = '#aaaaaa'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`跳过 +${Config.UPGRADE.SKIP_EXP}经验`, skipX + skipW / 2, skipY + skipH / 2)
   }
 
   _drawCard(x, y, w, h, def, currentLevel) {
