@@ -200,7 +200,8 @@ class AbilitySystem {
     const totalMul = buffMul * berserkMul * stormMul
 
     // 轻羽: 重力 -8%/级
-    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul * berserkMul * stormMul
+    // [v1.2.1] 重力不吃狂暴/风暴之子乘区——重力增大对玩家是debuff，"全属性提升"不应包含它
+    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul
 
     // 顺风: 上升力 +10%/级
     s.flapForceMultiplier = (1 + 0.10 * lv('tailwind')) * buffMul * berserkMul * stormMul
