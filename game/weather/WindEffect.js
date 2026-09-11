@@ -61,7 +61,8 @@ class WindEffect extends WeatherEffect {
     if (this.isVertical) {
       gameCtx.bird.velocity += force
     } else {
-      gameCtx.windScrollModifier += force * 0.3
+      // [v1.2.1] 水平风系数 0.3→1.5（配置化），玩法影响与视觉强度对齐
+      gameCtx.windScrollModifier += force * Config.WEATHER.WIND.HORIZONTAL_FACTOR
     }
 
     // 生成风向粒子

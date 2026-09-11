@@ -47,6 +47,14 @@ module.exports = {
     GAP_RAMP_TIME: 3600,    // 间隙缩小周期
     GAP_RAMP_MAX: 40,       // 最大间隙缩小量
 
+    // [v1.2.1] 第二段难度缓坡：60s后速度/间隙以半速继续爬升，至180s封顶
+    SPEED_RAMP2_START: 3600,  // 第二段起点（帧）=60s
+    SPEED_RAMP2_TIME: 7200,   // 第二段爬升周期（帧），60s→180s
+    SPEED_RAMP2_MAX: 0.75,    // 第二段最大速度增量（第一段的一半）
+    GAP_RAMP2_START: 3600,    // 第二段起点（帧）=60s
+    GAP_RAMP2_TIME: 7200,     // 第二段爬升周期（帧），60s→180s
+    GAP_RAMP2_MAX: 20,        // 第二段最大间隙缩小量（第一段的一半）
+
     STATE: {
       READY: 'ready',
       PLAYING: 'playing',
@@ -182,6 +190,10 @@ module.exports = {
     CHOICE_COUNT: 3,       // 默认可选数量
     MAX_ALL_BUFF_LEVEL: 10, // 全属性加成最大等级
 
+    // [v1.2.1] 二段跳触发窗口（帧）：上次拍翅后 3~18 帧（≈50~300ms）内再次拍翅触发
+    DOUBLE_JUMP_MIN_WINDOW: 3,
+    DOUBLE_JUMP_MAX_WINDOW: 18,
+
     // [v1.1.3] 新能力权重倍率
     NEW_ABILITY_BONUS: 1.3  // 未拥有能力权重额外乘数
   },
@@ -220,7 +232,7 @@ module.exports = {
 
   // ==================== [v1.2.0] 环境系统 ====================
   WEATHER: {
-    START_TIME: 1800,          // 30s后开始可能触发
+    START_TIME: 1080,          // [v1.2.1] 30s→18s后开始可能触发
     CHECK_INTERVAL: 600,       // 每10秒检查一次
     BASE_CHANCE: 0.20,         // 基础概率20%
     MAX_CHANCE: 0.50,          // 最大概率50%（10分钟时）
@@ -233,6 +245,7 @@ module.exports = {
       MIN_DURATION: 900,       // 15s
       MAX_DURATION: 1800,      // 30s
       MAX_FORCE: 0.15,         // 最大风力 px/frame²
+      HORIZONTAL_FACTOR: 1.5,  // [v1.2.1] 水平风对世界滚动的影响系数（0.3→1.5，视听不再脱节）
       DURATION_RAMP_TIME: 7200 // 持续时间增长周期(2分钟)
     },
 
