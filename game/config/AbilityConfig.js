@@ -186,7 +186,8 @@ const Abilities = [
     category: ABILITY.CATEGORY.ACTIVE,
     rarity: 'epic',          // [v1.1.3]
     maxLevel: 2,
-    effectText: (lv) => `复活${lv}次，恢复满HP`
+    // [v1.2.1] 文案修正：升级会重置已用次数，实际为"每级复活次数+1"（Lv2一局最多复活3次）
+    effectText: (lv) => `复活次数 +1/级，恢复满HP`
   },
   // [v1.1.0新增]
   {
