@@ -63,6 +63,12 @@ class AbilitySystem {
     // [v1.2.0] 环境状态（由WeatherSystem更新，供风暴之子计算）
     this.weatherActive = false
 
+    // [v1.2.2] N7 特效事件队列（由Game.js每帧取出并生成内联粒子特效）
+    this.fxEvents = []
+
+    // [v1.2.2] N9 重新开始时重置稀有卡软保底计数
+    Registry.resetPity()
+
     // 缓存
     this._statsCache = null
   }
@@ -199,12 +205,13 @@ class AbilitySystem {
     // 全属性倍率 = buff × 狂暴 × 风暴之子
     const totalMul = buffMul * berserkMul * stormMul
 
-    // 轻羽: 重力 -8%/级
+    // 轻羽: 重力 -5%/级
     // [v1.2.1] 重力不吃狂暴/风暴之子乘区——重力增大对玩家是debuff，"全属性提升"不应包含它
-    s.gravityMultiplier = (1 - 0.08 * lv('light_feather')) * buffMul
+    // [v1.2.2] N3 幅度减半：-8%→-5%/级（陷阱卡不再主动有害）
+    s.gravityMultiplier = (1 - 0.05 * lv('light_feather')) * buffMul
 
-    // 顺风: 上升力 +10%/级
-    s.flapForceMultiplier = (1 + 0.10 * lv('tailwind')) * buffMul * berserkMul * stormMul
+    // 顺风: 上升力 +6%/级 [v1.2.2] N3 幅度减半：+10%→+6%/级
+    s.flapForceMultiplier = (1 + 0.06 * lv('tailwind')) * buffMul * berserkMul * stormMul
 
     // 灵巧: 碰撞箱 -12%/级
     s.collisionScale = Math.max(0.3, 1 - 0.12 * lv('agile'))
@@ -285,6 +292,7 @@ class AbilitySystem {
       if (this.shieldBurstTimer <= 0) {
         this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
         this.shieldBurstTimer = this._getShieldBurstCD()
+        this._emitFx('shield')  // [v1.2.2] N7 护盾获得特效
         Logger.info('Shield', '护盾爆发获得护盾', { layers: this.shieldLayers, max: this.maxShieldLayers })
       }
     }
@@ -296,6 +304,7 @@ class AbilitySystem {
       if (this.shieldRecoverTimer >= Config.SHIELD.TOUGHNESS_RECOVER_CD) {
         this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
         this.shieldRecoverTimer = 0
+        this._emitFx('shield')  // [v1.2.2] N7 护盾获得特效
         Logger.info('Shield', '坚韧护盾恢复', { layers: this.shieldLayers, max: this.maxShieldLayers })
       }
     }
@@ -308,6 +317,7 @@ class AbilitySystem {
       if (this.bounceShieldRecoverTimer >= cd) {
         this.shieldLayers = Math.min(this.shieldLayers + 1, this.maxShieldLayers)
         this.bounceShieldRecoverTimer = 0
+        this._emitFx('shield')  // [v1.2.2] N7 护盾获得特效
         Logger.info('Shield', '弹力护盾恢复', { layers: this.shieldLayers, max: this.maxShieldLayers })
       }
     }
@@ -318,10 +328,21 @@ class AbilitySystem {
       if (this.regenerationTimer <= 0) {
         this.hp = Math.min(this.hp + 1, this.maxHp)
         this.regenerationTimer = this._getRegenerationCD()
+        this._emitFx('regen')  // [v1.2.2] N7 自愈特效
         Logger.info('Ability', '自愈恢复HP', { hp: this.hp, maxHp: this.maxHp, nextCD: this.regenerationTimer })
         this.invalidateStats()  // [v1.1.2] HP变化刷新缓存
       }
     }
+  }
+
+  /**
+   * [v1.2.2] N7 发射特效事件（轻量钩子：Game.js每帧取出后生成内联粒子特效，
+   *           不引入EffectManager）
+   * @param {string} type - 'regen' | 'shield'
+   */
+  _emitFx(type) {
+    if (!this.fxEvents) this.fxEvents = []
+    this.fxEvents.push({ type: type })
   }
 
   // ==================== CD 计算 ====================
@@ -409,6 +430,8 @@ class AbilitySystem {
 
   /**
    * 消耗一层护盾
+   * [v1.2.2] N1 护盾消耗（弹力护盾弹开/统一护盾抵挡/冰雹护盾抵挡）统一断连击，
+   *           杜绝"护盾抵挡不掉连击"配合连击之心的永动组合
    * @returns {boolean}
    */
   consumeShield() {
@@ -416,6 +439,7 @@ class AbilitySystem {
       this.shieldLayers--
       this.shieldRecoverTimer = 0
       this.bounceShieldRecoverTimer = 0
+      this.resetCombo()  // [v1.2.2] N1
       Logger.info('Shield', '护盾消耗', { remaining: this.shieldLayers, max: this.maxShieldLayers })
       return true
     }
@@ -428,6 +452,7 @@ class AbilitySystem {
   addShieldLayer(amount) {
     const before = this.shieldLayers
     this.shieldLayers = Math.min(this.shieldLayers + amount, this.maxShieldLayers)
+    if (this.shieldLayers > before) this._emitFx('shield')  // [v1.2.2] N7 护盾获得特效
     Logger.info('Shield', '获得护盾层', { before, after: this.shieldLayers, max: this.maxShieldLayers })
   }
 
@@ -439,6 +464,9 @@ class AbilitySystem {
   // ==================== 连击系统 ====================
 
   onPipePass() {
+    // [v1.2.2] N1 无敌期间（受击/连击/复活等任何来源）过管不累计combo，
+    // 打破连击之心Lv3"阈值2+无敌期照算"的永久无敌循环
+    if (this.invincibleFrames > 0) return
     this.comboCount++
     const threshold = this.getStat('comboThreshold')
     if (this.comboCount >= threshold) {

@@ -107,6 +107,8 @@ class HailEffect extends WeatherEffect {
     if (iceCrystalLv > 0 && abilities.iceCrystalCD <= 0 && !shieldFull) {
       abilities.addShieldLayer(1)
       abilities.iceCrystalCD = (20 - 3 * (iceCrystalLv - 1)) * 60
+      // [v1.2.2] N1 冰晶护体转化（挡下冰雹）也断连击；防御性判断兼容无resetCombo的mock
+      if (typeof abilities.resetCombo === 'function') abilities.resetCombo()
       this._addCrackEffect(hailstone.x, hailstone.y, '#64c8ff')
       gameCtx.addFloatingText(hailstone.x, hailstone.y - 20, '护盾+1!', '#64c8ff', 35)
       return
