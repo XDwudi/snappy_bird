@@ -31,7 +31,8 @@ const Abilities = [
     category: ABILITY.CATEGORY.PASSIVE,
     rarity: 'common',       // [v1.1.3]
     maxLevel: 5,
-    effectText: (lv) => `重力 -${8 * lv}%`
+    // [v1.2.2] N3 幅度减半：-8%→-5%/级（陷阱卡不再主动有害）
+    effectText: (lv) => `重力 -${5 * lv}%`
   },
   {
     id: 'tailwind',
@@ -41,7 +42,8 @@ const Abilities = [
     category: ABILITY.CATEGORY.PASSIVE,
     rarity: 'common',       // [v1.1.3]
     maxLevel: 5,
-    effectText: (lv) => `上升力 +${10 * lv}%`
+    // [v1.2.2] N3 幅度减半：+10%→+6%/级（陷阱卡不再主动有害）
+    effectText: (lv) => `上升力 +${6 * lv}%`
   },
   {
     id: 'agile',
@@ -57,11 +59,12 @@ const Abilities = [
     id: 'magnet',
     name: '磁吸',
     icon: '🧲',
-    desc: '扩大经验球/道具吸引范围',
+    // [v1.2.2] N8 文案修正：经验球自v1.1.4不再生成，去掉误导描述
+    desc: '扩大道具吸引范围',
     category: ABILITY.CATEGORY.PASSIVE,
     rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 5,
-    effectText: (lv) => `吸引范围 +${50 * lv}px`
+    effectText: (lv) => `道具吸引范围 +${50 * lv}px`
   },
   {
     id: 'greed',

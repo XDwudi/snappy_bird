@@ -139,6 +139,10 @@ class WindEffect extends WeatherEffect {
       const arrowDist = 35 + intensity * 10
       const arrowLen = 12 + intensity * 8
 
+      // [v1.2.2] N2 御风者会翻转风力方向，箭头按"有效受力方向"绘制（同步翻转）
+      const windRiderLv = (gameCtx.abilities && gameCtx.abilities.owned.get('wind_rider')) || 0
+      const arrowDir = windRiderLv > 0 ? -this.direction : this.direction
+
       ctx.save()
       ctx.translate(bx, by)
 
@@ -146,9 +150,9 @@ class WindEffect extends WeatherEffect {
       let dx, dy
       if (this.isVertical) {
         dx = 0
-        dy = this.direction * arrowDist
+        dy = arrowDir * arrowDist
       } else {
-        dx = this.direction * arrowDist
+        dx = arrowDir * arrowDist
         dy = 0
       }
 
