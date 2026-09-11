@@ -27,6 +27,10 @@ module.exports = {
     GAP: 180,               // 管道间隙基础值
     MIN_GAP: 120,           // 最小间隙
     SPAWN_INTERVAL: 90,     // 生成间隔（帧），90帧≈1.5s
+    // [v1.2.2] N5 终局加压：120s起生成间隔线性收紧，至300s达下限75帧
+    SPAWN_RAMP_START: 7200,   // 间隔收紧起点（帧）=120s
+    SPAWN_RAMP_TIME: 10800,   // 收紧周期（帧），120s→300s
+    SPAWN_INTERVAL_MIN: 75,   // 生成间隔下限（帧）
     CAP_HEIGHT: 26,         // 管道帽高度
     CAP_OVERHANG: 4,        // 帽突出宽度
     MIN_TOP: 50,            // 顶部管道最小高度
@@ -173,7 +177,7 @@ module.exports = {
   ORB: {
     RADIUS: 8,             // 经验球半径
     BASE_SPEED: 3.0,       // 基础移动速度（跟随世界滚动）
-    ATTRACT_RANGE: 60,     // 基础磁吸范围
+    ATTRACT_RANGE: 72,     // 基础磁吸范围 [v1.2.2] B1 60→72（+20%）
     ATTRACT_FORCE: 0.8,    // 磁吸力强度
     GLOW_COLOR: '#ffd700', // 经验球颜色（金色）
     GLOW_OUTER: 'rgba(255, 215, 0, 0.3)',
@@ -195,7 +199,17 @@ module.exports = {
     DOUBLE_JUMP_MAX_WINDOW: 18,
 
     // [v1.1.3] 新能力权重倍率
-    NEW_ABILITY_BONUS: 1.3  // 未拥有能力权重额外乘数
+    NEW_ABILITY_BONUS: 1.3,  // 未拥有能力权重额外乘数
+
+    // [v1.2.2] N9 软保底：连续5次升级面板无稀有及以上卡时，下一面板保底1张稀有+
+    PITY_THRESHOLD: 5
+  },
+
+  // ==================== [v1.2.2] 升级面板保护（B2/N6） ====================
+  UPGRADE: {
+    SAFE_MARGIN_PX: 20,          // B2-① 延后弹板：小鸟越过最近管道右边缘的安全边距(px)
+    RESUME_INVINCIBLE_FRAMES: 45,// B2-② 恢复保护：面板关闭后无敌帧数（0.75s）
+    SKIP_EXP: 20                 // N6 跳过选卡获得的经验
   },
 
   // ==================== [v1.1.3] 能力稀有度系统 ====================
@@ -240,6 +254,9 @@ module.exports = {
     TRIGGER_COOLDOWN: 600,     // 触发后冷却10s
     EFFECT_COOLDOWN: 1800,     // 同效果独立冷却30s
     MAX_SIMULTANEOUS: 2,       // 最多同时2种效果
+    // [v1.2.2] N5 终局加压：240s后并发上限提升为3
+    LATE_GAME_TIME: 14400,     // 终局起点（帧）=240s
+    MAX_SIMULTANEOUS_LATE: 3,  // 终局最多同时3种效果
 
     WIND: {
       MIN_DURATION: 900,       // 15s
