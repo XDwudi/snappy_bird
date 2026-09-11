@@ -1636,9 +1636,14 @@ class Game {
     const gap = 10
     const maxCardW = 130
     const cardH = 180
-    const cardW = Math.min(maxCardW, (this.screenW - 40 - (n - 1) * gap) / n)
-    const startX = (this.screenW - (n * cardW + (n - 1) * gap)) / 2
-    const cardY = (this.screenH - cardH) / 2 + 10
+    const rowGap = 14
+
+    // [v1.2.1] 卡牌数>4时改两行排布（如6张=3+3），保证单卡宽度与文字可读
+    const useTwoRows = n > 4
+    const perRow = useTwoRows ? Math.ceil(n / 2) : n
+    const cardW = Math.min(maxCardW, (this.screenW - 40 - (perRow - 1) * gap) / perRow)
+    const totalH = useTwoRows ? cardH * 2 + rowGap : cardH
+    const cardY = (this.screenH - totalH) / 2 + 10
 
     this._cardBounds = []
 
@@ -1646,10 +1651,16 @@ class Game {
       const ab = choices[i]
       const _found = ownedList.find(o => o.def.id === ab.id)
       const currentLevel = (_found ? _found.level : 0) || 0
-      const cardX = startX + i * (cardW + gap)
+      const row = Math.floor(i / perRow)
+      const col = i % perRow
+      // 末行不满时单独居中
+      const rowCount = (useTwoRows && row > 0) ? (n - perRow) : perRow
+      const rowStartX = (this.screenW - (rowCount * cardW + (rowCount - 1) * gap)) / 2
+      const cardX = rowStartX + col * (cardW + gap)
+      const thisCardY = cardY + row * (cardH + rowGap)
 
-      this._cardBounds.push({ x: cardX, y: cardY, w: cardW, h: cardH, id: ab.id })
-      this._drawCard(cardX, cardY, cardW, cardH, ab, currentLevel)
+      this._cardBounds.push({ x: cardX, y: thisCardY, w: cardW, h: cardH, id: ab.id })
+      this._drawCard(cardX, thisCardY, cardW, cardH, ab, currentLevel)
     }
   }
 
