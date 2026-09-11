@@ -1,6 +1,6 @@
 # STATE.md — 项目现状快照（唯一事实源）
 
-> 每次会话开始**先读本文件**。最近更新：2026-09-12 ｜ 当前版本：**v1.2.0**（git main，已推送 origin）
+> 每次会话开始**先读本文件**。最近更新：2026-09-12 ｜ 当前版本：**v1.2.1**（git main）
 
 ## 产品一句话
 Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，纯 Canvas 渲染（非小程序），基础库 ≥2.25.0，AppID `wxf8eb7f1a872a483e`。
@@ -12,7 +12,7 @@ Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，
 | 经验/升级 | game/systems/ExpSystem.js | ✅ 稳定 |
 | 能力系统（28 个能力） | game/systems/AbilitySystem.js + config/AbilityConfig.js | ✅ 稳定 |
 | HP/统一护盾/道具 | AbilitySystem + entities/Item.js | ✅ 稳定 |
-| 环境系统（风/雨/冰雹） | systems/WeatherSystem.js + weather/*.js | ⚠️ 刚修复"从未触发"bug，缺真机回归 |
+| 环境系统（风/雨/冰雹） | systems/WeatherSystem.js + weather/*.js | ✅ v1.2.1 修复雨停重力瞬变/教学提示 |
 | 凤凰复活 | AbilitySystem + Game.js 内联动画 | ✅ 动画重但曝光率低 |
 | 日志 | systems/GameLogger.js | ✅ |
 | 存档 | utils/Storage.js | ⚠️ 仅存最高分；金币/皮肤 API 悬空 |
@@ -20,12 +20,14 @@ Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，
 | 社交分享/排行榜 | — | ❌ 未实现（上线必需） |
 
 ## 已知问题（详见 docs/audits/审计_v1.2.0.md）
-- **P0**：①水平风玩法影响仅 1.5%（视听脱节）②二段跳触发窗口 2~8 帧人类难触发 ③难度 60s 拉满后不再增长，与 3~10 分钟单局目标矛盾
-- **P1**：风暴之子/狂暴"全属性"含重力实为 debuff；雨停重力瞬变；冰晶护体优先级代码与文档相反；6 卡牌面板不可读；天气触发太晚(30s)且雨甩水无教学；无敌期小鸟整帧消失；Game.js 1897 行 God Object 待拆分
-- **P2**：对象池缺失（冰雹场景压力点）；凤凰 Lv2 实际复活 3 次与文案不符；护盾抵挡不掉连击；README 停留在 v1.1.0；4 个 core 工具类零引用
+- ~~P0 三项~~（水平风 1.5%、二段跳窗口、60s 难度停滞）→ **v1.2.1 已修**
+- ~~P1 已修~~：风暴之子/狂暴重力 debuff、雨停重力瞬变、冰晶护体满盾白扣 CD（优先级改文档对齐代码，D5/D8）、6 卡牌面板、天气太晚+无教学、无敌期整帧消失、rAF 无兜底 → **v1.2.1 已修**
+- **P1 遗留**：Game.js 1897 行 God Object 待拆分（审计 A3，单独排期）
+- **P2**：对象池缺失（冰雹场景压力点）；护盾抵挡不掉连击；结算无环境经历统计；新增天气需改 2 处硬编码映射；4 个 core 工具类零引用；Storage 金币/皮肤 API 悬空
+- ~~P2 凤凰文案不符~~、~~P2 README 过期~~ → **v1.2.1 已修**
 
 ## 当前迭代焦点
-**待用户评审**：v1.2.1 修复包（P0 三项 + P1 小项），方案见 `docs/iterations/迭代_v1.2.1_修复包.md`
+**v1.2.1 修复包已完成**（12 项全部落地，weather/gameplay 模拟回归通过）：首次天气中位 28s（原偏晚）、60s 后难度继续半速爬升至 180s。待真机手感验证后可推送并打 tag。
 
 ## 下一步候选（v1.3.0）
 移动管道 / 音效系统 / 社交分享（方案 v1.2.0 §17 列为 P1 候选）；Game.js 拆分（HudRenderer/EffectRenderer 优先，见审计 A3）
