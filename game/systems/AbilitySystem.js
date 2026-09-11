@@ -485,8 +485,11 @@ class AbilitySystem {
    */
   tryDoubleJump(currentFrame) {
     if (!this.getStat('hasDoubleJump') || this.doubleJumpCD > 0) return false
-    // 上次拍翅在8帧内（约133ms），触发二段跳
-    if (currentFrame - this.lastFlapFrame <= 8 && currentFrame - this.lastFlapFrame >= 2) {
+    // [v1.2.1] 触发窗口 2~8帧 → 3~18帧（配置化，约50~300ms，人类可触发）
+    const minW = Config.ABILITY.DOUBLE_JUMP_MIN_WINDOW
+    const maxW = Config.ABILITY.DOUBLE_JUMP_MAX_WINDOW
+    const dt = currentFrame - this.lastFlapFrame
+    if (dt <= maxW && dt >= minW) {
       this.doubleJumpCD = this._getDoubleJumpCD()
       this.lastFlapFrame = -999
       Logger.info('Ability', '二段跳触发', { cd: this.doubleJumpCD })
