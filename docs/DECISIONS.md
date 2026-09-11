@@ -10,3 +10,6 @@
 - 2026-09-12 ｜ D6 ｜ ObjectPool / EventBus / MathUtil / GameObject 四个 core 类零引用 ｜ 早期架构预留 ｜ 暂不删除；Game.js 拆分时若仍无引用则归档或移除
 - 2026-09-12 ｜ D7 ｜ 建立 AI 协作开发框架（手册+STATE+DECISIONS+CHANGELOG+迭代档案）｜ 防上下文溢出导致方向偏移，支撑多角色子代理协作 ｜ 全体 Agent 遵循 `docs/handbook/开发手册.md`
 - 2026-09-12 ｜ D8 ｜ D5 评审结论：**改文档对齐代码**，冰雹碰撞优先级以代码为准（冰晶护体 > 统一护盾 > HP）；同时修复护盾满层时冰晶护体白扣 CD（满盾不触发不进 CD，走统一护盾链）｜ 代码行为对玩家更友好（冰雹转化为护盾资源）｜ docs/开发方案_v1.2.0.md §3.3.3/§7.2.3 已修订，HailEffect.js [v1.2.1]
+- 2026-09-12 ｜ D9 ｜ N1 采用「无敌期不累计 combo + 护盾消耗统一断连击」破除连击之心 Lv3 永动 ｜ 不改阈值/无敌时长本身，只切断"无敌期过管照算 combo"与"护盾抵挡不掉连击"两条供能回路；resetCombo 收敛进 AbilitySystem.consumeShield 单点覆盖弹力弹开/统一抵挡/冰雹抵挡，冰晶护体转化路径显式补调 ｜ AbilitySystem.js、Game.js、HailEffect.js [v1.2.2]；test_builds_sim 铁壁流满时长局 80%→58%
+- 2026-09-12 ｜ D10 ｜ B2 升级保护采用**双保险**而非单一方案：①过管升级延迟弹板（小鸟越过最近管道右边缘+20px 安全边距才进 UPGRADING）②面板关闭后 45 帧无敌+垂直速度清零 ｜ 只延迟弹板无法覆盖"经验球/道具/擦边触发的升级"，只给恢复无敌无法消除"弹板瞬间鸟在管道内"的坏手感；两者互补且全部配置化（UPGRADE.SAFE_MARGIN_PX / RESUME_INVINCIBLE_FRAMES）｜ Game.js、GameConfig.js [v1.2.2]
+- 2026-09-12 ｜ D11 ｜ B1 磁吸改**锁定吸附**：进范围即 magnetized 永久追踪，追踪速度=scrollSpeed+1.5 而非原"距离越近越快"的力场公式 ｜ 原公式远端趋近 0 速、净速度常被世界滚动抵消是"吸一半丢失"的根因；锁定+恒速保底追踪彻底解决，同时基础范围 60→72px（+20%）｜ Collectible.js、GameConfig.js [v1.2.2]

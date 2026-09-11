@@ -1,6 +1,21 @@
 # CHANGELOG — 版本历史
 
-## v1.2.1（2026-09-12，当前版本）
+## v1.2.2（2026-09-12，当前版本）
+> 平衡性 + 体验修复版本：游戏性审计 N1-N9 + 用户需求 B1/B2（迭代文档：docs/iterations/迭代_v1.2.2_平衡版本.md）
+- fix(N1): 无敌期间（受击/连击/复活任何来源）过管不累计 combo；护盾消耗三路径（弹力护盾弹开/统一护盾抵挡/冰晶护体转化）统一 resetCombo——连击之心 Lv3 永动无敌破除（D9）
+- fix(N2): 御风者翻转风力时，风向箭头按有效受力方向同步翻转（WindEffect）
+- tweak(N3): 陷阱卡幅度减半——顺风上升力 +10%→+6%/级、轻羽重力 -8%→-5%/级，effectText 同步（只动数值与文案）
+- fix(N4): 瞬移（史诗）优先于时间扭曲判定，二者独立 CD 各自可触发，解除序列遮蔽
+- feat(N5): 终局加压配置化——管道生成间隔 120s→300s 间 90→75 帧 ramp（PIPE.SPAWN_RAMP_START/TIME/SPAWN_INTERVAL_MIN）；天气 240s 后并发上限 2→3（WEATHER.LATE_GAME_TIME/MAX_SIMULTANEOUS_LATE，WeatherSystem 按时长动态取上限）
+- feat(N6): 升级面板底部新增「跳过 +20经验」低调按钮，放弃选卡走正常 addExp 流程（可连锁升级），配置 UPGRADE.SKIP_EXP
+- feat(N7): 补齐承诺特效（沿用内联粒子风格，未建 EffectManager）——自愈绿色十字粒子+"+1HP"文字、护盾获得蓝色闪光环、二段跳白色尾迹、风暴之子生效期金色光环；AbilitySystem 增加 fxEvents 轻量事件钩子
+- fix(N8): 磁吸文案去除永不生成的经验球，改为"道具吸引范围 +50px/级"
+- feat(N9): 非酋软保底——连续 5 次升级面板无稀有及以上卡时，下一面板保底 1 张稀有+（AbilityRegistry 层，ABILITY.PITY_THRESHOLD=5，新局重置）
+- feat(B1): 磁吸改锁定吸附——道具进范围即置 magnetized 永久追踪（出范围不脱钩），追踪速度=滚动速度+1.5 保证追上；基础磁吸范围 60→72px（+20%）
+- feat(B2): 升级保护双保险（D10）——①过管升级延迟弹板：小鸟越过最近管道右边缘+20px 安全边距（UPGRADE.SAFE_MARGIN_PX）才进 UPGRADING；②面板关闭后 45 帧无敌（UPGRADE.RESUME_INVINCIBLE_FRAMES）+ 垂直速度清零
+- 回归：三模拟器通过；铁壁护盾流满时长局 80%→58%（120s 后死亡率 9%→22%）；陷阱流中位生存 40.1s→55.0s；随机基线中位 67.1s→71.5s；天气 240s 后实测并发峰值达 3
+
+## v1.2.1（2026-09-12）
 - fix: 水平风系数 0.3→1.5 配置化（WEATHER.WIND.HORIZONTAL_FACTOR），视听与玩法影响对齐
 - fix: 二段跳触发窗口 2~8 帧放宽至 3~18 帧，配置化（ABILITY.DOUBLE_JUMP_MIN/MAX_WINDOW）
 - fix: 新增第二段难度缓坡：60s 后速度/间隙以半速继续爬升至 180s 封顶（GAME.*_RAMP2_*）
