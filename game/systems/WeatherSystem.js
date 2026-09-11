@@ -46,6 +46,7 @@ class WeatherSystem {
     this.effectCooldowns = {}       // 各效果独立冷却 { wind: 0, rain: 0, hail: 0 }
     this.checkTimer = 0             // 检查计时器
     this.rainResidual = null        // 雨效果结束后残留（继续干燥）
+    this._rainHintShown = false     // [v1.2.1] "拍翅甩水!"教学提示只显示一次
     for (const t of ALL_TYPES) {
       this.effectCooldowns[t] = 0
     }
@@ -157,6 +158,18 @@ class WeatherSystem {
         colors[type] || '#ffffff',
         60
       )
+
+      // [v1.2.1] 首次下雨教学提示：拍翅可甩水（只提示一次）
+      if (type === 'rain' && !this._rainHintShown) {
+        this._rainHintShown = true
+        gameCtx.addFloatingText(
+          gameCtx.screenW / 2,
+          gameCtx.screenH * 0.3 + 26,
+          '拍翅甩水!',
+          '#a0d8ff',
+          90
+        )
+      }
     }
   }
 

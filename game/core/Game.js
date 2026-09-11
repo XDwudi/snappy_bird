@@ -83,6 +83,9 @@ class Game {
     // [v1.2.0] 凤凰复活动画状态
     this.phoenixAnim = null     // null | { phase: 'pause'|'revive', timer: N, maxTimer: N }
 
+    // [v1.2.1] 教学提示标记（每局只提示一次）
+    this._shieldHintShown = false  // "护盾可挡1次碰撞"
+
     // [v1.2.0] 环境属性修饰器（每帧由WeatherSystem更新）
     this._weatherGravityBonus = 0
     this._weatherWindScroll = 0
@@ -150,6 +153,7 @@ class Game {
     this.shakeFrames = 0
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
+    this._shieldHintShown = false // [v1.2.1] 重置教学提示
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -195,6 +199,7 @@ class Game {
     this.shakeFrames = 0
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
+    this._shieldHintShown = false // [v1.2.1] 重置教学提示
     this.itemSpawnTimer = 0       // [v1.1.1]
 
     this.expSystem.reset()
@@ -344,6 +349,12 @@ class Game {
     // 能力系统更新
     this.abilitySystem.tickCooldowns()
     this._applyAbilityStatsToBird()
+
+    // [v1.2.1] 首次获得护盾教学提示（道具/能力/冰晶护体等所有来源统一覆盖，每局只提示一次）
+    if (!this._shieldHintShown && this.abilitySystem.shieldLayers > 0) {
+      this._shieldHintShown = true
+      this._addFloatingText(this.bird.x, this.bird.y - 45, '护盾可挡1次碰撞', '#3498db', 90)
+    }
 
     // [v1.2.0] 应用环境重力加成（雨效果）
     if (this._weatherGravityBonus > 0) {
