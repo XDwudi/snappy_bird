@@ -13,6 +13,8 @@
  * [v1.2.1] 修复：第二段难度缓坡、升级面板6卡两行排布、rAF双缺失setTimeout兜底、天气18s起+教学提示。
  * [v1.2.2] 修复：无敌期不累计combo+护盾消耗断连击(N1)、瞬移优先于时间扭曲(N4)、管道间隔ramp(N5)、
  *           升级面板跳过按钮(N6)、自愈/护盾/二段跳/风暴之子内联特效(N7)、磁吸锁定吸附(B1)、升级保护双保险(B2)。
+ * [v1.2.3] 热修复：B2 延迟弹板安全区判定修复（P0：升级弹窗卡死不出现）+ 90帧保底超时强制弹板；
+ *           移除 N6 跳过按钮（用户要求）。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -107,7 +109,8 @@ class Game {
 
     // 升级选项缓存
     this._currentChoices = null
-    this._skipBtnBounds = null    // [v1.2.2] N6 升级面板跳过按钮区域
+    // [v1.2.3] B2-③ 延迟弹板计时（帧）：pendingLevelUps>0 且未进安全区时累计，超 MAX_DELAY_FRAMES 强制弹板
+    this._upgradeDelayFrames = 0
 
     this._init()
   }
@@ -156,7 +159,7 @@ class Game {
     this.nearMissEffects = []
     this.floatingTexts = []
     this.abilityEffects = []      // [v1.2.2] N7
-    this._skipBtnBounds = null    // [v1.2.2] N6
+    this._upgradeDelayFrames = 0  // [v1.2.3] B2-③ 重开时清零延迟计时，防状态泄漏
     this.shakeFrames = 0
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
@@ -205,7 +208,7 @@ class Game {
     this.nearMissEffects = []
     this.floatingTexts = []
     this.abilityEffects = []      // [v1.2.2] N7
-    this._skipBtnBounds = null    // [v1.2.2] N6
+    this._upgradeDelayFrames = 0  // [v1.2.3] B2-③ 重开时清零延迟计时，防状态泄漏
     this.shakeFrames = 0
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
@@ -250,20 +253,6 @@ class Game {
     this.abilitySystem.invalidateStats()
     this.expSystem.consumeLevelUp()
     this._currentChoices = null
-    this._skipBtnBounds = null    // [v1.2.2] N6
-    this._afterUpgrade()
-  }
-
-  /**
-   * [v1.2.2] N6 跳过本次选卡：放弃选卡并获得少量经验（走正常_gainExp流程，可能连锁升级）
-   */
-  _skipUpgrade() {
-    Logger.info('LevelUp', '跳过选卡', { level: this.expSystem.level, skipExp: Config.UPGRADE.SKIP_EXP })
-    const stats = this.abilitySystem.getStats()
-    this._gainExp(Config.UPGRADE.SKIP_EXP, 'skip_upgrade', stats)
-    this.expSystem.consumeLevelUp()
-    this._currentChoices = null
-    this._skipBtnBounds = null
     this._afterUpgrade()
   }
 
@@ -514,23 +503,38 @@ class Game {
 
     // 升级检查
     if (this.expSystem.hasPendingLevelUp()) {
-      // [v1.2.2] B2-① 延后弹板：等小鸟安全越过最近管道右边缘+安全边距再进UPGRADING，
-      // 避免"过管瞬间弹板、关板即撞下一管"
-      if (this._isUpgradeSafeZone()) {
+      // [v1.2.2] B2-① 延后弹板：等小鸟飞出管道间隙再进UPGRADING，避免"过管瞬间弹板、关板即撞下一管"
+      // [v1.2.3] B2-③ 保底超时：安全区迟迟不满足时累计延迟帧，超 MAX_DELAY_FRAMES(90帧=1.5s) 强制弹板，
+      //           保证任何情况下升级弹窗必出现（v1.2.2 线上 P0：安全区恒不成立导致弹窗卡死）
+      this._upgradeDelayFrames++
+      if (this._isUpgradeSafeZone() || this._upgradeDelayFrames >= Config.UPGRADE.MAX_DELAY_FRAMES) {
+        if (this._upgradeDelayFrames >= Config.UPGRADE.MAX_DELAY_FRAMES && !this._isUpgradeSafeZone()) {
+          Logger.warn('LevelUp', '延迟弹板超时，强制弹出', { delayFrames: this._upgradeDelayFrames })
+        }
+        this._upgradeDelayFrames = 0
         this._triggerLevelUp()
       }
+    } else {
+      this._upgradeDelayFrames = 0  // [v1.2.3] 无待处理升级时清零，防标志位泄漏
     }
   }
 
   /**
-   * [v1.2.2] B2-① 判断当前是否处于安全区：所有管道右边缘+安全边距都已被小鸟越过
+   * [v1.2.2] B2-① 判断当前是否处于安全区（小鸟不在任何管道间隙中）
+   * [v1.2.3] 修复：只判定与小鸟横向区间相交（含安全边距）的管道。
+   * v1.2.2 要求小鸟越过"所有"管道的右边缘，但小鸟 x 坐标固定、管道持续从屏幕右侧生成，
+   * 前方永远存在尚未到达的管道，安全区恒不成立 → 升级弹窗卡死不出现（线上 P0）。
+   * 现改为：仅当小鸟正在穿越某管道（横向区间相交±边距）时视为不安全；
+   * 前方远处的管道不参与判定（弹出后面板冻结+关板45帧无敌已覆盖该风险）。
    * @returns {boolean}
    */
   _isUpgradeSafeZone() {
     const margin = Config.UPGRADE.SAFE_MARGIN_PX
     const birdLeft = this.bird.x - this.bird.collisionWidth / 2
+    const birdRight = this.bird.x + this.bird.collisionWidth / 2
     for (const pipe of this.pipes) {
-      if (pipe.x + pipe.width + margin > birdLeft) return false
+      // 管道横向区间 [pipe.x, pipe.x+width] 与小鸟区间（±安全边距）相交 → 小鸟在间隙中，不安全
+      if (pipe.x + pipe.width + margin > birdLeft && pipe.x - margin < birdRight) return false
     }
     return true
   }
@@ -1770,14 +1774,6 @@ class Game {
           }
         }
       }
-      // [v1.2.2] N6 跳过按钮：放弃本次选卡并获得少量经验
-      if (this._skipBtnBounds) {
-        const b = this._skipBtnBounds
-        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
-          this._skipUpgrade()
-          return
-        }
-      }
     } else if (this.state === Config.GAME.STATE.GAME_OVER) {
       // [v1.1.1] 仅按钮可交互，点击其他区域无效
       if (this._restartBtnBounds) {
@@ -1890,26 +1886,6 @@ class Game {
       this._cardBounds.push({ x: cardX, y: thisCardY, w: cardW, h: cardH, id: ab.id })
       this._drawCard(cardX, thisCardY, cardW, cardH, ab, currentLevel)
     }
-
-    // [v1.2.2] N6 跳过按钮：卡牌下方，低调样式；点击放弃本次选卡并获得少量经验
-    const skipW = 130
-    const skipH = 30
-    const skipX = (this.screenW - skipW) / 2
-    const skipY = cardY + totalH + 16
-    this._skipBtnBounds = { x: skipX, y: skipY, w: skipW, h: skipH }
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
-    this._roundRect(skipX, skipY, skipW, skipH, 8)
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
-    ctx.lineWidth = 1
-    this._roundRect(skipX, skipY, skipW, skipH, 8)
-    ctx.stroke()
-    ctx.font = '12px monospace'
-    ctx.fillStyle = '#aaaaaa'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(`跳过 +${Config.UPGRADE.SKIP_EXP}经验`, skipX + skipW / 2, skipY + skipH / 2)
   }
 
   _drawCard(x, y, w, h, def, currentLevel) {
