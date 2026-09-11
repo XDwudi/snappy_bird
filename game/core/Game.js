@@ -552,7 +552,13 @@ class Game {
   _getScrollSpeed() {
     const stats = this.abilitySystem.getStats()
     const base = Config.GAME.SCROLL_SPEED
-    const ramp = Math.min(this.gameTime / Config.GAME.SPEED_RAMP_TIME, 1) * Config.GAME.SPEED_RAMP_MAX
+    let ramp = Math.min(this.gameTime / Config.GAME.SPEED_RAMP_TIME, 1) * Config.GAME.SPEED_RAMP_MAX
+    // [v1.2.1] 第二段缓坡：60s后速度以半速继续爬升，至180s封顶
+    if (this.gameTime > Config.GAME.SPEED_RAMP2_START) {
+      ramp += Math.min(
+        (this.gameTime - Config.GAME.SPEED_RAMP2_START) / Config.GAME.SPEED_RAMP2_TIME, 1
+      ) * Config.GAME.SPEED_RAMP2_MAX
+    }
     let speed = (base + ramp) * stats.scrollSpeedMultiplier
 
     // 时间扭曲减速
@@ -572,7 +578,13 @@ class Game {
   _getGapSize() {
     const stats = this.abilitySystem.getStats()
     const base = Config.PIPE.GAP + stats.gapBonus
-    const reduction = Math.min(this.gameTime / Config.GAME.GAP_RAMP_TIME, 1) * Config.GAME.GAP_RAMP_MAX
+    let reduction = Math.min(this.gameTime / Config.GAME.GAP_RAMP_TIME, 1) * Config.GAME.GAP_RAMP_MAX
+    // [v1.2.1] 第二段缓坡：60s后间隙以半速继续缩小，至180s封顶
+    if (this.gameTime > Config.GAME.GAP_RAMP2_START) {
+      reduction += Math.min(
+        (this.gameTime - Config.GAME.GAP_RAMP2_START) / Config.GAME.GAP_RAMP2_TIME, 1
+      ) * Config.GAME.GAP_RAMP2_MAX
+    }
     return Math.max(base - reduction, Config.PIPE.MIN_GAP + stats.gapBonus * 0.5)
   }
 
