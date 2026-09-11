@@ -95,14 +95,16 @@ class HailEffect extends WeatherEffect {
 
   /**
    * 处理冰雹碰撞
-   * 碰撞优先级：统一护盾 > 冰晶护体 > HP扣血
+   * [v1.2.1] 碰撞优先级（与文档对齐，决策D5/D8）：冰晶护体 > 统一护盾 > HP扣血
    */
   _handleHailCollision(hailstone, gameCtx) {
     const abilities = gameCtx.abilities
 
     // 冰晶护体：冰雹转为护盾
+    // [v1.2.1] 护盾已满层时冰晶护体不触发也不进CD，走后续统一护盾链
     const iceCrystalLv = abilities.owned.get('ice_crystal') || 0
-    if (iceCrystalLv > 0 && abilities.iceCrystalCD <= 0) {
+    const shieldFull = abilities.shieldLayers >= abilities.maxShieldLayers
+    if (iceCrystalLv > 0 && abilities.iceCrystalCD <= 0 && !shieldFull) {
       abilities.addShieldLayer(1)
       abilities.iceCrystalCD = (20 - 3 * (iceCrystalLv - 1)) * 60
       this._addCrackEffect(hailstone.x, hailstone.y, '#64c8ff')
