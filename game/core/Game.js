@@ -780,7 +780,9 @@ class Game {
     }
 
     // 升级检查
-    if (this.expSystem.hasPendingLevelUp()) {
+    // [v1.5.0] 大礼包结算期间（_bossRewardPending）不走这里：升级面板由面板链
+    // （selectAbility→_afterUpgrade→_triggerLevelUp）驱动，防同帧 _triggerLevelUp 踩踏 bossCard 面板
+    if (this.expSystem.hasPendingLevelUp() && !this._bossRewardPending) {
       // [v1.2.2] B2-① 延后弹板：等小鸟飞出管道间隙再进UPGRADING，避免"过管瞬间弹板、关板即撞下一管"
       // [v1.2.3] B2-③ 保底超时：安全区迟迟不满足时累计延迟帧，超 MAX_DELAY_FRAMES(90帧=1.5s) 强制弹板，
       //           保证任何情况下升级弹窗必出现（v1.2.2 线上 P0：安全区恒不成立导致弹窗卡死）
