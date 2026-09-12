@@ -23,6 +23,10 @@ class ExpSystem {
     this.bankRate = 0          // 每 10s 生息比例（0.05/级）
     this.lastBankDeposit = 0   // 最近一次 addExp 存入银行的量（Game 取走后清零）
     this.lastBankWithdraw = 0  // 最近一次升级时银行转入经验池的量
+
+    // [v1.4.0] 顿悟（enlightenment）：由 Game 根据持卡情况调用 configureEnlighten 同步
+    this.enlightenEnabled = false
+    this.enlightenUsed = 0     // 本局已触发次数（每局限 ENLIGHTEN_MAX_PER_RUN=3 次，硬刹车）
   }
 
   /**
@@ -66,6 +70,25 @@ class ExpSystem {
 
     this.exp += actual
 
+    // [v1.4.0] 顿悟：入账后经验 ≥ 升级所需×200% 时一次升 2 级（消耗 200% 额度作为代价），
+    // 每局限 3 次硬刹车（防"全程双升"等级失控）；顿悟算升级——银行同样全额取出；
+    // 双面板连弹由 Game 侧既有 B2 保护覆盖（关板 45 帧无敌对第二块同样生效），勿另写
+    if (this.enlightenEnabled && this.enlightenUsed < Config.EXP.ENLIGHTEN_MAX_PER_RUN) {
+      const neededNow = this.getExpNeeded(this.level)
+      if (this.exp >= neededNow * Config.EXP.ENLIGHTEN_RATIO) {
+        this.exp -= neededNow * Config.EXP.ENLIGHTEN_RATIO
+        this.level += 2
+        this.pendingLevelUps += 2
+        this.enlightenUsed++
+        this.lastBankWithdraw = 0
+        if (this.bankEnabled && this.bankBalance > 0) {
+          this.exp += this.bankBalance
+          this.lastBankWithdraw += this.bankBalance
+          this.bankBalance = 0
+        }
+      }
+    }
+
     // 检查升级
     while (this.exp >= this.getExpNeeded(this.level)) {
       this.exp -= this.getExpNeeded(this.level)
@@ -103,6 +126,14 @@ class ExpSystem {
   configureBank(lv) {
     this.bankEnabled = lv > 0
     this.bankRate = Config.EXP.BANK.INTEREST_PER_LV * lv
+  }
+
+  /**
+   * [v1.4.0] 同步顿悟开关（由 Game 在选卡后调用）
+   * @param {number} lv - 顿悟等级（0=未持有）
+   */
+  configureEnlighten(lv) {
+    this.enlightenEnabled = lv > 0
   }
 
   /**

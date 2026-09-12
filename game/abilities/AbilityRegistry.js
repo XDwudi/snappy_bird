@@ -166,6 +166,34 @@ class AbilityRegistry {
 
     this._noRareStreak++
   }
+  /**
+   * [v1.4.0] 幸运光环 Lv3 质变：从稀有及以上候选中按权重抽 1 张（供 AbilitySystem.getChoices 保底替换）
+   * 不影响 N9 软保底计数（_noRareStreak 已在 rollChoices 内结算；两机制同向不冲突）
+   * @param {Map} owned
+   * @param {string[]} excludeIds - 已在面板中的卡（避免重复）
+   * @param {number} playerLevel
+   * @returns {Object|null} 能力定义或 null（无候选）
+   */
+  rollRarePlus(owned, excludeIds, playerLevel) {
+    const excluded = {}
+    for (const id of excludeIds) excluded[id] = true
+    const pool = []
+    for (const ab of Abilities) {
+      if ((ab.rarity || 'common') === 'common') continue
+      if (excluded[ab.id]) continue
+      const currentLevel = owned.get(ab.id) || 0
+      if (currentLevel >= ab.maxLevel) continue
+      pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel) })
+    }
+    if (pool.length === 0) return null
+    const totalWeight = pool.reduce((sum, c) => sum + c.weight, 0)
+    let r = Math.random() * totalWeight
+    for (const c of pool) {
+      r -= c.weight
+      if (r <= 0) return c.ability
+    }
+    return pool[pool.length - 1].ability
+  }
 }
 
 // 导出单例
