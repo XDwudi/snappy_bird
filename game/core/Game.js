@@ -136,6 +136,12 @@ class Game {
       getOwnedLevel: function (id) { return self.abilitySystem.owned.get(id) || 0 },
       getPipes: function () { return self.pipes },
       getMonsterCount: function () { return self.monsters.length },
+      // [v1.5.0 D21] Boss 战导弹保底供给：小鸟同高生成 + 场上查重
+      getBirdY: function () { return self.bird.y },
+      hasItemType: function (type) {
+        for (const it of self.items) { if (it.type === type) return true }
+        return false
+      },
       onSpawnPipe: function (pipe) {
         // [v1.5.0] 章节换色（§4.2）：新管直接给当前章色（Ch1 返回 null=默认色，零变化）
         const cs = self.chapterSystem ? self.chapterSystem.getPipeColorSet() : null
@@ -1642,11 +1648,17 @@ class Game {
 
     // [v1.5.0] Boss 最优先判定（体型大易命中；猎手标记/屠戮者加成生效，
     // 蜂群链路叠层对 Boss 不加成——防叠层秒杀 30HP 设计目标，D19）
+    // [v1.5.0 D21] 对 Boss 伤害 ×MISSILE_DAMAGE_MULT（保底输出链与火力流共享）；
+    // 受击间隔门在 Boss.takeDamage 内收敛同批多发（防弹幕级 DPS 秒杀）；
+    // 每次命中（含被门挡下）都爆爆炸粒子+受击白闪，命中反馈可见、不"白打"
     if (this.boss && this.boss.hp > 0 && this.boss.state !== 'entering' &&
         this.boss.state !== 'dying' && this.boss.state !== 'leaving' &&
         missile.hitTest(this.boss)) {
       const slayerLv = this.abilitySystem.owned.get('boss_slayer') || 0
-      const bossDamage = Config.MISSILE.DAMAGE + hunterLv + slayerLv
+      // [v1.5.0 D21] 系数只乘基础导弹伤害，猎手/屠龙者加成保持 1:1 flat（不削卡）：
+      // 无卡 3/发、成型火力 6/发、满配 7/发——保底链与火力流的差距由命中频次拉开
+      const bossDamage = Config.MISSILE.DAMAGE * Config.BOSS.MISSILE_DAMAGE_MULT + hunterLv + slayerLv
+      this._spawnExplosion(missile.x, missile.y, '255, 200, 60', 8)
       this.boss.takeDamage(bossDamage)
       hitSomething = true
       // 蜂群链路命中 Boss 只续窗不叠层（火力转移到召唤物时保留节奏）

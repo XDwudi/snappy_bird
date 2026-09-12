@@ -63,11 +63,13 @@ class Missile {
   }
 
   /**
-   * 目标瞄准点：怪物=中心；管道=离导弹较近一侧管体的边缘
+   * 目标瞄准点：怪物/Boss=中心；管道=离导弹较近一侧管体的边缘
+   * [v1.5.0 D21 修复] isBoss 并入中心分支：原管道分支把 Boss 瞄准点偏到上下缘 ±42px，
+   * 超出 hitTest 命中窗（±36px）→ 完美追踪的导弹系统性脱靶 ~6px（无卡保底链 ~30% 脱靶率来源）
    */
   _targetPoint() {
     const t = this.target
-    if (t.type === 'monster') {
+    if (t.type === 'monster' || t.isBoss) {
       return { x: t.x + t.width / 2, y: t.y }
     }
     // 管道：瞄准上管底部或下管顶部（取较近者），保证命中判定稳定

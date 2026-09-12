@@ -78,6 +78,7 @@ class Boss extends Obstacle {
     this._chargeTimer = cfg.chargeCD
 
     this._hitFlash = 0               // 受击白闪反馈（帧）
+    this._hitGate = 0                // [v1.5.0 D21] 受击间隔门剩余帧（>0 时导弹命中不扣血，白闪照常）
     this._syncBox()
   }
 
@@ -101,6 +102,7 @@ class Boss extends Obstacle {
     const B = Config.BOSS
     this.stateT++
     if (this._hitFlash > 0) this._hitFlash--
+    if (this._hitGate > 0) this._hitGate--   // [v1.5.0 D21] 受击间隔门倒计时
     if (this.phase2Flash > 0) this.phase2Flash--
 
     if (this.state === 'entering') {
@@ -195,12 +197,20 @@ class Boss extends Obstacle {
 
   /**
    * [v1.3.0] 受击接口覆盖：HP 扣减 + 受击白闪 + P1→P2 阶段切换（HP<50%）
+   * [v1.5.0 D21] 受击间隔门（HIT_GATE_FRAMES）：门上存续期间导弹命中不扣血——
+   * 挂架扇形/风暴连发的同批命中收敛为一发，防弹幕级 DPS 秒杀；
+   * 被门挡下的命中仍刷新白闪（配合 Game 侧爆炸粒子，每次命中反馈可见，不"白打"）。
    * @param {number} n - 伤害值
    * @returns {boolean} true=HP 归零（Game 侧走胜利结算）
    */
   takeDamage(n) {
+    if (this._hitGate > 0) {
+      this._hitFlash = Math.max(this._hitFlash, 3)  // 门挡命中：短闪反馈，不扣血
+      return false
+    }
     this.hp -= n
     this._hitFlash = 6
+    this._hitGate = Config.BOSS.HIT_GATE_FRAMES
     if (this.phase === 1 && this.hp < this.maxHp * Config.BOSS.PHASE2_HP_RATIO && this.hp > 0) {
       this.phase = 2
       this.phase2Flash = Config.BOSS.PHASE2_FLASH_FRAMES  // §4.8 P2 入场爆闪 30 帧

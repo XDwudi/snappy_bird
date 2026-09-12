@@ -19,6 +19,9 @@
  * [v1.5.0] 预留接口（本章只留接口，不实现章节逻辑）：
  *   setBossActive(active)      —— Boss 战期间暂停管道/怪物的生成与距离累计（道具照常）。
  *                                  默认 false，行为与拆分前完全一致。
+ *   [v1.5.0 D21] Boss 战导弹保底供给：bossActive 期间每 MISSILE_SUPPLY_INTERVAL_FRAMES
+ *                                  检查一次，场上无导弹道具则在玩家前方同高生成 1 枚
+ *                                  （updateBossMissileSupply；每场战斗结束计时清零）。
  *   setChapterModifiers(mods)  —— 章节系统覆写生成参数的注入点（步骤 B 起由 ChapterSystem 注入）：
  *                                  { pipeDistanceScale, monsterSpawnDistanceScale,
  *                                    monsterSpawnDistance, monsterMaxAlive,
@@ -49,6 +52,8 @@ class SpawnSystem {
    * @param {function(string):number} deps.getOwnedLevel - 能力持有等级（supply_line 保底用）
    * @param {function():Array} deps.getPipes - 当前管道数组（怪物 y 避让用）
    * @param {function():number} deps.getMonsterCount - 当前同屏怪物数
+   * @param {function():number} deps.getBirdY - [v1.5.0 D21] 小鸟当前 y（Boss 战保底导弹同高生成用）
+   * @param {function(string):boolean} deps.hasItemType - [v1.5.0 D21] 场上是否存在某类型道具（保底供给查重用）
    * @param {function(Pipe)} deps.onSpawnPipe - 管道生成结果接线（Game push 进 this.pipes）
    * @param {function(Monster)} deps.onSpawnMonster - 怪物生成结果接线
    * @param {function(Item)} deps.onSpawnItem - 道具生成结果接线
@@ -73,6 +78,10 @@ class SpawnSystem {
     // [v1.5.0] 精英怪 roll 状态（§5.1）：局内状态，随 reset 清零
     this._eliteTimer = 0      // 距上次 roll 的帧数（45s 保护期后开始计时）
     this._elitePending = false // true = 下一只怪物升级为精英
+
+    // [v1.5.0 D21] Boss 战导弹保底供给计时（仅 bossActive 期间推进）
+    this._bossSupplyTimer = 0
+    this.bossSupplyCount = 0  // 本局保底供给已生成枚数（模拟器断言/遥测用，随 reset 清零）
   }
 
   // ==================== 生命周期 ====================
@@ -85,6 +94,8 @@ class SpawnSystem {
     this.supplyLineTimer = 0  // [v1.4.0]
     this._eliteTimer = 0      // [v1.5.0] 精英 roll 计时（局内状态）
     this._elitePending = false // [v1.5.0]
+    this._bossSupplyTimer = 0 // [v1.5.0 D21] Boss 战导弹保底供给
+    this.bossSupplyCount = 0  // [v1.5.0 D21]
     // 注：_bossActive / _chapterMods 是跨局配置，不随局内重置清零（由 ChapterSystem 管理）
   }
 
@@ -97,6 +108,9 @@ class SpawnSystem {
    */
   setBossActive(active) {
     this._bossActive = !!active
+    // [v1.5.0 D21] 进战即供第一枚（计时器预置满，下个生成帧即生成——无卡输出链零启动延迟；
+    // 火力流因此也快 ~1 发，已计入数值闭环口径），战斗结束清零、下一场同样即供
+    this._bossSupplyTimer = active ? Config.BOSS.MISSILE_SUPPLY_INTERVAL_FRAMES : 0
   }
 
   /**
@@ -147,6 +161,10 @@ class SpawnSystem {
 
     // [v1.4.0] 补给线：保底道具计时（与随机生成独立）
     this.updateSupplyLine()
+
+    // [v1.5.0 D21] Boss 战导弹保底供给（仅 bossActive 期间推进；零随机消耗——
+    // 位置取小鸟同高，类型固定 missile，仅 Item 构造器脉冲相位消耗 1 次 Math.random）
+    this.updateBossMissileSupply()
   }
 
   // ==================== 管道生成 ====================
@@ -378,6 +396,29 @@ class SpawnSystem {
       this.spawnRandomItem()
       Logger.info('Item', '补给线保底道具', { lv: lv, intervalSec: interval / 60 })
     }
+  }
+
+  /**
+   * [v1.5.0 D21] Boss 战导弹保底供给：战斗期间每 MISSILE_SUPPLY_INTERVAL_FRAMES 检查一次，
+   * 场上无导弹道具则在玩家前方（与小鸟同高，右屏缘外 20px）生成 1 枚导弹道具。
+   * 与随机生成/补给线完全独立；场上已有导弹道具则顺延下个周期再查（不囤积）。
+   * 依据：§4.9"无卡玩家能赢"的可达成化——无卡对 Boss 唯一伤害源是道具导弹，
+   * 随机供给约 1 枚/48s 与 30HP 差 2 个数量级（D20）；保底节拍把无卡输出链确定性化。
+   */
+  updateBossMissileSupply() {
+    if (!this._bossActive) return
+    this._bossSupplyTimer++
+    if (this._bossSupplyTimer < Config.BOSS.MISSILE_SUPPLY_INTERVAL_FRAMES) return
+    this._bossSupplyTimer = 0
+    if (this._deps.hasItemType('missile')) return  // 场上已有导弹道具：本周期不生成（顺延）
+    const groundY = this._deps.screenH - Config.GROUND.HEIGHT
+    const minY = Config.PIPE.MIN_TOP + 30
+    const maxY = groundY - 30
+    // 与小鸟同高生成（磁吸+滚动收敛≈必拾取）；钳制进合法 y 区间
+    const itemY = Math.max(minY, Math.min(maxY, this._deps.getBirdY()))
+    this._deps.onSpawnItem(new Item(this._deps.screenW + 20, itemY, 'missile'))
+    this.bossSupplyCount++
+    Logger.info('Item', 'Boss 战保底导弹供给', { y: Math.round(itemY), count: this.bossSupplyCount })
   }
 }
 
