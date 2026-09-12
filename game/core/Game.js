@@ -46,15 +46,40 @@
 
 const Config = require('../config/GameConfig.js')
 const Bird = require('../entities/Bird.js')
-// [v1.5.0] Pipe/Monster/Item 实体构造已随生成决策迁入 systems/SpawnSystem.js，Game 不再直接 require
+// [v1.5.0] Pipe/Monster/Item 实体构造已随生成决策迁入 systems/SpawnSystem.js；
+// Monster 在 Boss 召唤物（§4.8 P2 召唤走 Monster 工厂）处仍需直接构造
+const Monster = require('../entities/Monster.js')
 const Missile = require('../entities/Missile.js')   // [v1.3.0]
+const Boss = require('../entities/Boss.js')         // [v1.5.0] 关底 Boss（Obstacle 子类，变体参数化）
+const Feather = require('../entities/Feather.js')   // [v1.5.0] Boss 羽刃弹幕（Hailstone 改水平）
 const Orb = require('../entities/Orb.js')
 const ExpSystem = require('../systems/ExpSystem.js')
 const AbilitySystem = require('../systems/AbilitySystem.js')
 const WeatherSystem = require('../systems/WeatherSystem.js')
 const SpawnSystem = require('../systems/SpawnSystem.js')   // [v1.5.0] 生成系统（管道/道具/怪物）
-const ChapterSystem = require('../systems/ChapterSystem.js') // [v1.5.0] 章节系统（进度/转场/难度修正/视觉参数）
+const ChapterSystem = require('../systems/ChapterSystem.js') // [v1.5.0] 章节系统（进度/转场/Boss流程/难度修正/视觉参数）
+const AbilityRegistry = require('../abilities/AbilityRegistry.js')  // [v1.5.0] 大礼包自选面板 roll
 const Logger = require('../systems/GameLogger.js')
+
+// [v1.5.0] 章节祝福池（§4.10：每次过关 3 选 1，本局永久；数值刻意高于一张普通卡）
+// 伪能力定义，复用升级面板卡片渲染（_drawCard 只需要 icon/name/rarity/category/effectText）
+const BOSS_BLESSINGS = [
+  {
+    id: 'bless_vitality', name: '活力祝福', icon: '💚', rarity: 'rare', category: 'special',
+    desc: '生存向',
+    effectText: () => 'HP回满 + 护盾补满 + 临时HP+1（上限+1）'
+  },
+  {
+    id: 'bless_growth', name: '成长祝福', icon: '🌱', rarity: 'rare', category: 'special',
+    desc: '滚雪球向',
+    effectText: () => '经验获取+25%（本局永久，独立乘区）'
+  },
+  {
+    id: 'bless_hunt', name: '狩猎祝福', icon: '🏹', rarity: 'rare', category: 'special',
+    desc: '资源向',
+    effectText: () => '道具生成率+8pp（本局永久）+ 立即前方生成3道具'
+  }
+]
 
 class Game {
   /**
@@ -122,7 +147,7 @@ class Game {
     })
 
     // [v1.5.0] 章节系统（步骤 B：进度计数/转场演出/难度修正注入/视觉参数出口；
-    // Boss 本体步骤 C 接入，startBossFight/endBossFight 为占位接口）。
+    // 步骤 C：Boss 全流程——出场演出 deps.spawnBoss、天气冻结、章节进/出钩子）。
     // 依赖全部经回调注入，ChapterSystem 不反查 Game 内部状态；默认 Ch1 全零修正、零随机消耗。
     this.chapterSystem = new ChapterSystem({
       screenW: this.screenW,
@@ -135,8 +160,24 @@ class Game {
         // §4.3 转场收尾：60 帧无敌恢复飞行（语义同 B2-② 恢复保护）
         self.abilitySystem.invincibleFrames = Math.max(self.abilitySystem.invincibleFrames, frames)
         self.bird.invincibleBlink = Math.max(self.bird.invincibleBlink, 30)
-      }
+      },
+      // [v1.5.0 步骤C] §4.7 Boss 战天气计时冻结（生效中天气保持当前强度）
+      setWeatherFrozen: function (f) { self.weatherSystem.setFrozen(f) },
+      // [v1.5.0 步骤C] 出场演出 enter 阶段：创建 Boss 实体（右侧飞入）
+      spawnBoss: function () { self._spawnBoss() },
+      // [v1.5.0 步骤C] 本章终结钩子（回响消散）与进新章钩子（旅者/回响/章节之主）
+      onChapterEnd: function () { self._onChapterEnd() },
+      onChapterEnter: function (toIndex) { self._onChapterEnter(toIndex) }
     })
+
+    // [v1.5.0 步骤C] Boss 战状态
+    this.boss = null               // Boss 实体（出场演出 enter 阶段创建，死亡演出后/离场出屏后清空）
+    this.feathers = []             // Boss 羽刃弹幕列表
+    this._bossDyingFrames = 0      // 死亡演出慢动作剩余帧（§4.11：30 帧 0.5×，复用速度包）
+    this._bossRewardPending = false // 大礼包结算中（面板链：自选卡→祝福→经验升级→转场）
+    this.bossBadges = []           // 本局已击败 Boss 徽章（章节 id，结算界面徽章行）
+    this._panelMode = 'levelup'    // 面板模式：'levelup' | 'bossCard'（大礼包自选）| 'blessing'（祝福三选一）
+    this._echoBoost = null         // R9 章节回响：{ id, from, to }（本章临时等级，章末按增量还原）
 
     // 计时器
     this.gameTime = 0
@@ -243,6 +284,14 @@ class Game {
     this._ironBeakHintShown = false // [v1.4.0] 重置铁喙教学提示
     this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
     this.monsterKills = 0         // [v1.4.0] 怪物击杀计数
+    // [v1.5.0 步骤C] Boss 战状态清零
+    this.boss = null
+    this.feathers = []
+    this._bossDyingFrames = 0
+    this._bossRewardPending = false
+    this.bossBadges = []
+    this._panelMode = 'levelup'
+    this._echoBoost = null
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -303,6 +352,14 @@ class Game {
     this._ironBeakHintShown = false // [v1.4.0]
     this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
     this.monsterKills = 0         // [v1.4.0] 怪物击杀计数
+    // [v1.5.0 步骤C] Boss 战状态清零
+    this.boss = null
+    this.feathers = []
+    this._bossDyingFrames = 0
+    this._bossRewardPending = false
+    this.bossBadges = []
+    this._panelMode = 'levelup'
+    this._echoBoost = null
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -338,7 +395,23 @@ class Game {
   }
 
   selectAbility(abilityId) {
-    Logger.info('LevelUp', '选择能力', { id: abilityId, currentLevel: this.abilitySystem.owned.get(abilityId) || 0 })
+    Logger.info('LevelUp', '选择能力', { id: abilityId, panelMode: this._panelMode,
+      currentLevel: this.abilitySystem.owned.get(abilityId) || 0 })
+
+    // [v1.5.0] 面板路由：祝福面板（伪能力，直接生效不消耗升级次数）
+    if (this._panelMode === 'blessing') {
+      this._applyBlessing(abilityId)
+      this._currentChoices = null
+      this._panelMode = 'levelup'
+      // 祝福后接大礼包经验升级面板链（无 pending 则 _afterUpgrade 内收尾）
+      if (this.expSystem.hasPendingLevelUp()) {
+        this._triggerLevelUp()
+      } else {
+        this._afterUpgrade()
+      }
+      return
+    }
+
     this.abilitySystem.selectAbility(abilityId)
     this.abilitySystem.invalidateStats()
 
@@ -359,6 +432,13 @@ class Game {
       this._addFloatingText(this.bird.x, this.bird.y - 45, '无敌中，撞怪反击！', '#ffaa00', 90)
     }
 
+    // [v1.5.0] 面板路由：大礼包自选面板（真实获得走上方全副作用链，但不消耗经验升级次数，选完接祝福面板）
+    if (this._panelMode === 'bossCard') {
+      this._currentChoices = null
+      this._openBlessingPanel()
+      return
+    }
+
     this.expSystem.consumeLevelUp()
     this._currentChoices = null
     this._afterUpgrade()
@@ -367,17 +447,22 @@ class Game {
   _afterUpgrade() {
     if (this.expSystem.hasPendingLevelUp()) {
       this._triggerLevelUp()
-    } else {
-      // [v1.2.2] B2-② 恢复保护：面板关闭后给短暂无敌+垂直速度清零，防止"选完即撞"
-      this.abilitySystem.invincibleFrames = Math.max(
-        this.abilitySystem.invincibleFrames, Config.UPGRADE.RESUME_INVINCIBLE_FRAMES
-      )
-      this.bird.invincibleBlink = Math.max(this.bird.invincibleBlink, 30)
-      this.bird.velocity = 0
-      this.state = Config.GAME.STATE.PLAYING
-      if (this.onExpChange) {
-        this.onExpChange(this.expSystem.getExpBarData())
-      }
+      return
+    }
+    // [v1.5.0] 大礼包面板链收尾（经验升级链耗尽后才转场）
+    if (this._bossRewardPending) {
+      this._finishBossRewards()
+      return
+    }
+    // [v1.2.2] B2-② 恢复保护：面板关闭后给短暂无敌+垂直速度清零，防止"选完即撞"
+    this.abilitySystem.invincibleFrames = Math.max(
+      this.abilitySystem.invincibleFrames, Config.UPGRADE.RESUME_INVINCIBLE_FRAMES
+    )
+    this.bird.invincibleBlink = Math.max(this.bird.invincibleBlink, 30)
+    this.bird.velocity = 0
+    this.state = Config.GAME.STATE.PLAYING
+    if (this.onExpChange) {
+      this.onExpChange(this.expSystem.getExpBarData())
     }
   }
 
@@ -473,6 +558,15 @@ class Game {
     if (this.chapterSystem.isTransitioning()) {
       this.chapterSystem.updateTransition()
       this._applyChapterPipeColors()  // 换色 lerp 在冻结期照常推进（30 帧播完）
+      return
+    }
+
+    // [v1.5.0 步骤C] Boss 出场演出（§4.11：暗角收拢30→雷云聚集60→飞入60）：
+    // 同款世界冻结；enter 阶段 Boss 实体飞入动画在冻结期推进（纯演出，无碰撞判定）
+    if (this.chapterSystem.isBossIntro()) {
+      this.chapterSystem.updateBossIntro()
+      this._applyChapterPipeColors()
+      if (this.boss) this.boss.update(this.bird)
       return
     }
 
@@ -656,6 +750,9 @@ class Game {
 
     // [v1.3.0] 怪物更新与碰撞（受击链与管道同级）
     if (this._updateMonsters(scrollSpeed)) return
+
+    // [v1.5.0 步骤C] Boss 与羽刃弹幕更新（出场/战斗/死亡演出/战败离场全流程）
+    if (this._updateBossFight()) return
 
     // [v1.3.0] 导弹更新与命中
     this._updateMissiles(scrollSpeed)
@@ -1062,6 +1159,340 @@ class Game {
     return false
   }
 
+  // ==================== [v1.5.0 步骤C] Boss 战 ====================
+
+  /**
+   * Boss 实体创建（ChapterSystem 出场演出 enter 阶段回调）：
+   * 变体 = 当前章节下标；HP 单一事实源 = CHAPTERS.mods.bossHp
+   */
+  _spawnBoss() {
+    const idx = this.chapterSystem.index
+    const hp = this.chapterSystem.getMods().bossHp
+    const self = this
+    this.boss = new Boss(idx, this.screenW, this.screenH, hp, {
+      onFireFeather: function (x, y, angle, speed, color) {
+        self.feathers.push(new Feather(x, y, angle, speed, color))
+      },
+      onSummon: function (type, x, y) { self._spawnBossMinion(type, x, y) },
+      onPhase2: function (boss) { self._onBossPhase2(boss) }
+    })
+    Logger.info('Boss', 'Boss 出场', { name: this.boss.name, hp: hp, chapter: idx + 1 })
+  }
+
+  /**
+   * Boss 召唤物（§4.8 P2：每 15s 召唤，走 Monster 工厂）：
+   * 参数沿用当前章节修正（HP/追踪/振幅），不占普通怪物生成节奏（bossActive 期间普通生成已停）
+   */
+  _spawnBossMinion(type, x, y) {
+    const mods = this.chapterSystem.getMods()
+    const groundY = this.screenH - Config.GROUND.HEIGHT
+    const monster = new Monster(x, y, type, groundY, {
+      hpMult: mods.monsterHpMult,
+      trackSpeed: mods.floaterTrackSpeed,
+      sineAmp: mods.batSineAmp
+    })
+    this.monsters.push(monster)
+    Logger.info('Boss', 'Boss 召唤小怪', { type: type, x: Math.round(x), y: Math.round(y) })
+  }
+
+  /** P1→P2 阶段切换演出（§4.8：闪电粒子爆闪 30 帧 + 提示；血条变红由 HUD 读 boss.phase） */
+  _onBossPhase2(boss) {
+    this._spawnExplosion(boss.x + boss.width / 2, boss.y, '255, 255, 160', 20)
+    this._addFloatingText(this.screenW / 2, this.screenH * 0.3, boss.name + ' 暴怒了！', '#ff3b3b', 75)
+    Logger.info('Boss', 'Boss 进入 P2 暴怒', { name: boss.name, hp: boss.hp })
+  }
+
+  /**
+   * Boss 战每帧更新：弹幕（时之晶冻结停移动不停碰撞，与怪物同语义）→ Boss 本体 →
+   * 接触碰撞（统一受击链，铁喙/镜面对 Boss 无效）→ 死亡演出计时 → 离场回收
+   * @returns {boolean} true=游戏结束
+   */
+  _updateBossFight() {
+    if (!this.boss) return false
+    const boss = this.boss
+    // 死亡演出慢动作（§4.11：30 帧 0.5×，复用速度包比例；弹幕同步减速保持视觉一致）
+    const timeScale = this._bossDyingFrames > 0 ? Config.ITEM.SPEED_PACK_SLOWDOWN : 1
+    const frozen = this.abilitySystem.timeCrystalFreezeFrames > 0  // 时之晶：怪物/弹幕冻结（卡面承诺）
+
+    // 羽刃弹幕：命中即消（走统一受击链；被格挡/护盾/无敌减免同样消耗弹幕）
+    for (let i = this.feathers.length - 1; i >= 0; i--) {
+      const f = this.feathers[i]
+      if (!frozen) f.update(timeScale)
+      if (f.checkCollision(this.bird)) {
+        this.feathers.splice(i, 1)
+        if (this._handleCollision(f)) return true
+        continue
+      }
+      if (f.isOffscreen(this.screenW, this.screenH)) this.feathers.splice(i, 1)
+    }
+
+    // Boss 本体（dying 也继续 update 做坠落演出；leaving 同理加速离场）
+    if (!frozen) boss.update(this.bird)
+
+    // 本体接触伤害 1（entering/dying/leaving 态 Boss 内部已豁免碰撞）
+    if (boss.checkCollision(this.bird)) {
+      if (this._handleCollision(boss)) return true
+    }
+
+    // 死亡演出收尾 → 大礼包结算
+    if (this._bossDyingFrames > 0) {
+      this._bossDyingFrames--
+      if (this._bossDyingFrames <= 0) {
+        this.boss = null
+        this._startBossRewards()
+      }
+      return false
+    }
+
+    // 战败离场出屏回收
+    if (boss.state === 'leaving' && boss.isOffscreen()) this.boss = null
+    return false
+  }
+
+  /**
+   * 玩家战败（§4.10 方案A，D1/D19）：Boss 战期间 HP 归零不结束游戏——
+   * 本击已走完整受击链（C7 格挡/羽盾/护盾可减免，减免则不构成战败）；
+   * HP 钳 1（"扣 1 HP"的代价 = 这最后 1 HP 被战败保护兜住），Boss 长鸣离场、章内进度保留、
+   * 20 管后满血回归一次；二战失败本章 Boss 不再出现、章节正常推进无奖励。
+   * 边界：maxHp===1（血契流）无血可扣不兜底，由调用方继续走正常 gameover（方案原文"战败=死"）；
+   * 凤凰复活优先于战败判定（保有凤凰=战斗继续）。
+   * @returns {boolean} false=局继续
+   */
+  _onBossDefeat() {
+    this.abilitySystem.hp = 1
+    this.abilitySystem.invalidateStats()
+    this.abilitySystem.invincibleFrames = Math.max(
+      this.abilitySystem.invincibleFrames, Config.BOSS.DEFEAT_INVINCIBLE_FRAMES)
+    this.bird.invincibleBlink = Math.max(this.bird.invincibleBlink, 40)
+    this._addFloatingText(this.screenW / 2, this.screenH * 0.3, '战败……' + (this.boss ? this.boss.name : 'Boss') + ' 长鸣离场', '#cccccc', 90)
+    if (this.boss) this.boss.startLeaving()
+    const result = this.chapterSystem.onBossDefeat()
+    this.feathers = []  // 弹幕清空（战败公平性，回归战从零开局）
+    if (result === 'rematch') {
+      this._addFloatingText(this.screenW / 2, this.screenH * 0.3 + 26, '再过 20 管它将满血回归！', '#ffaa00', 90)
+    } else {
+      this._addFloatingText(this.screenW / 2, this.screenH * 0.3 + 26, '它不再回来……章节继续', '#999999', 90)
+    }
+    Logger.warn('Boss', 'Boss 战战败结算（方案A）', { result: result, hp: this.abilitySystem.hp })
+    return false
+  }
+
+  /**
+   * Boss 击杀（导弹 takeDamage 归零）：§4.11 死亡演出——爆炸粒子环（半径120px）+
+   * 慢动作 30 帧（复用速度包 0.5×）→ 大礼包面板（_bossDyingFrames 倒计时在 _updateBossFight）
+   */
+  _onBossVictory() {
+    const boss = this.boss
+    if (!boss || this._bossDyingFrames > 0) return
+    boss.startDying()
+    this._bossDyingFrames = Config.BOSS.DEATH_SLOWMO_FRAMES
+    // 爆炸粒子环（半径 120px，两圈密粒）
+    this._spawnExplosionRing(boss.x + boss.width / 2, boss.y, Config.BOSS.EXPLOSION_RING_RADIUS)
+    // 慢动作：复用速度包（世界 0.5×；弹幕同步在 _updateBossFight 读 _bossDyingFrames）
+    this.abilitySystem.setSpeedPack(Config.BOSS.DEATH_SLOWMO_FRAMES)
+    this.feathers = []  // 弹幕清空
+    // R10 战利品陈列叠层 + 结算徽章（先叠层，大礼包经验可吃到陈列加成——越早拿越强）
+    this.abilitySystem.setBossesDefeated(this.abilitySystem.bossesDefeated + 1)
+    this.bossBadges.push(this.chapterSystem.getChapter().id)
+    this.shakeFrames = Math.max(this.shakeFrames, 10)
+    this.shakeIntensity = 5
+    Logger.info('Boss', 'Boss 击杀', { name: boss.name, chapter: this.chapterSystem.getChapter().id,
+      kills: this.abilitySystem.bossesDefeated })
+  }
+
+  /** §4.11 爆炸粒子环：半径 120px 圆环两圈（外金内白） */
+  _spawnExplosionRing(x, y, radius) {
+    for (let ring = 0; ring < 2; ring++) {
+      const n = 18
+      for (let i = 0; i < n; i++) {
+        const angle = (Math.PI * 2 * i) / n
+        const speed = (radius / 24) * (ring === 0 ? 1 : 0.6)
+        this.abilityEffects.push({
+          kind: 'dot',
+          x: x, y: y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 30, maxLife: 30,
+          size: ring === 0 ? 4 : 2.5,
+          color: ring === 0 ? '255, 200, 60' : '255, 255, 255'
+        })
+      }
+    }
+  }
+
+  /**
+   * §4.10 章节大礼包（打赢四件套）：②+3 级所需经验 ③+100 分先行入账（浮动文字可见），
+   * ①特殊 3 选 1 面板（1 史诗+2 珍贵，满级卡已移出）→ ④章节祝福三选一 → 大礼包经验升级面板链
+   * → _finishBossRewards 转场。面板链全程 UPGRADING 语义（世界冻结，无生存压力）。
+   */
+  _startBossRewards() {
+    this._bossRewardPending = true
+    const stats = this.abilitySystem.getStats()
+
+    // ③ +100 分
+    this.score += Config.BOSS.GIFT_SCORE
+    if (this.onScoreChange) this.onScoreChange(this.score)
+
+    // ② +3 级所需经验（按当前等级曲线 18+12×Lv 逐级别累加；走统一 _gainExp 保持
+    //    共鸣/银行/顿悟/陈列/成长祝福全链路）
+    let expSum = 0
+    for (let i = 0; i < Config.BOSS.GIFT_LEVELS; i++) {
+      expSum += this.expSystem.getExpNeeded(this.expSystem.level + i)
+    }
+    this._gainExp(expSum, 'boss_gift', stats)
+    this._addFloatingText(this.screenW / 2, this.screenH * 0.3, '章节大礼包！+100 分', '#ffd700', 90)
+
+    // ① 特殊 3 选 1 面板（池空兜底：跳过卡片位直接进祝福）
+    const choices = AbilityRegistry.rollBossRewardChoices(this.abilitySystem.owned, this.expSystem.level)
+    if (choices) {
+      this._panelMode = 'bossCard'
+      this.state = Config.GAME.STATE.UPGRADING
+      this._currentChoices = choices
+      if (this.onLevelUp) {
+        this.onLevelUp(choices, this.expSystem.level, this.abilitySystem.getOwnedList())
+      }
+    } else {
+      Logger.warn('Boss', '大礼包自选面板无候选（全满级），跳过卡片位')
+      this._openBlessingPanel()
+    }
+    Logger.info('Boss', '章节大礼包入账', { giftExp: expSum, score: this.score })
+  }
+
+  /** ④ 章节祝福三选一面板（§4.10：三选一，本局永久；复用升级面板渲染，伪能力定义） */
+  _openBlessingPanel() {
+    this._panelMode = 'blessing'
+    this.state = Config.GAME.STATE.UPGRADING
+    this._currentChoices = BOSS_BLESSINGS
+    if (this.onLevelUp) {
+      this.onLevelUp(BOSS_BLESSINGS, this.expSystem.level, this.abilitySystem.getOwnedList())
+    }
+  }
+
+  /**
+   * ④ 章节祝福生效（E7 章节之主：祝福效果 +50%，授予时计入，本局永久）
+   * @param {string} id - 'bless_vitality' | 'bless_growth' | 'bless_hunt'
+   */
+  _applyBlessing(id) {
+    const masterMult = (this.abilitySystem.owned.get('chapter_master') || 0) > 0
+      ? Config.BOSS.BLESSING_MASTER_MULT : 1
+    const ab = this.abilitySystem
+    if (id === 'bless_vitality') {
+      // 活力：HP 回满 + 护盾补至上限 + 临时 HP（上限 +1/次）
+      ab.healHP(ab.maxHp)
+      ab.addShieldLayer(ab.maxShieldLayers)
+      ab.blessingTempHpCapBonus += 1
+      ab.grantTempHp(Math.round(1 * masterMult))
+      this._addFloatingText(this.bird.x, this.bird.y - 40, '活力祝福！', '#7fff7f', 75)
+    } else if (id === 'bless_growth') {
+      // 成长：经验 +25%（独立乘区，本局永久）
+      ab.blessingExpMult *= (1 + Config.BOSS.BLESSING_GROWTH_EXP * masterMult)
+      this._addFloatingText(this.bird.x, this.bird.y - 40, '成长祝福！', '#ffd700', 75)
+    } else if (id === 'bless_hunt') {
+      // 狩猎：道具率 +8pp（本局永久）+ 立即前方生成 3 道具
+      ab.blessingItemBonus += Config.BOSS.BLESSING_HUNT_ITEM_PP * masterMult
+      for (let i = 0; i < Config.BOSS.BLESSING_HUNT_SPAWN_ITEMS; i++) {
+        this.spawnSystem.spawnRandomItem()
+      }
+      this._addFloatingText(this.bird.x, this.bird.y - 40, '狩猎祝福！', '#ffaa00', 75)
+    }
+    ab.invalidateStats()
+    Logger.info('Boss', '章节祝福生效', { id: id, masterMult: masterMult,
+      expMult: ab.blessingExpMult, itemBonus: ab.blessingItemBonus })
+  }
+
+  /** 大礼包面板链收尾：恢复飞行（B2 同款保护）→ endBossFight(true) 转场（§4.3） */
+  _finishBossRewards() {
+    this._bossRewardPending = false
+    this._panelMode = 'levelup'
+    this.abilitySystem.invincibleFrames = Math.max(
+      this.abilitySystem.invincibleFrames, Config.UPGRADE.RESUME_INVINCIBLE_FRAMES)
+    this.bird.invincibleBlink = Math.max(this.bird.invincibleBlink, 30)
+    this.bird.velocity = 0
+    this.state = Config.GAME.STATE.PLAYING
+    this.chapterSystem.endBossFight(true)
+    if (this.onExpChange) this.onExpChange(this.expSystem.getExpBarData())
+  }
+
+  // ==================== [v1.5.0 步骤C] 章节进出钩子（联动卡） ====================
+
+  /**
+   * 进入新章钩子（ChapterSystem._applyNextChapter 回调，转场冻结期执行）：
+   * U9 旅者补给 / R9 章节回响 / E7 章节之主首面板保底标记
+   * @param {number} toIndex - 新章节下标（≥1，Ch1 不经过此钩子=旅者第 2 章起生效）
+   */
+  _onChapterEnter(toIndex) {
+    const owned = this.abilitySystem.owned
+    const stats = this.abilitySystem.getStats()
+
+    // U9 旅者：+lv 层护盾 +20exp/级（第 2 章起生效）
+    const nomadLv = owned.get('nomad') || 0
+    if (nomadLv > 0) {
+      this.abilitySystem.addShieldLayer(nomadLv)
+      this._gainExp(Config.ABILITY.NOMAD_EXP_PER_LV * nomadLv, 'nomad', stats)
+      this._addFloatingText(this.screenW / 2, this.screenH * 0.45, '旅者补给！', '#9b59b6', 75)
+      Logger.info('Ability', '旅者补给', { lv: nomadLv, chapter: toIndex + 1 })
+    }
+
+    // R9 章节回响：随机已持卡临时 +lv 级（本章有效）
+    this._applyChapterEcho()
+
+    // E7 章节之主：本章首次升级面板必含 1 张史诗（getChoices 消耗标记）
+    this.abilitySystem.chapterFirstPanelDue = true
+  }
+
+  /** 本章终结钩子（胜利/二战跳章，转场前）：回响消散（按增量还原，不动玩家本章自购的等级） */
+  _onChapterEnd() {
+    this._revertChapterEcho()
+  }
+
+  /**
+   * R9 章节回响（chapter_echo）：进新章随机 1 张已持卡临时 +lv 级（本章有效，不超 maxLevel；
+   * 满级重随机 ≤3 次——全部重试失败则本章无回响）。回响不含自身（防语义套娃）。
+   * 注：临时等级只改 owned 数值（stats 全链路生效）；selectAbility 的选卡副作用
+   * （活力回血/坚韧补盾等一次性效果）不因回响触发——回响是"体验卡"而非"真获得"。
+   */
+  _applyChapterEcho() {
+    const echoLv = this.abilitySystem.owned.get('chapter_echo') || 0
+    if (echoLv <= 0) return
+    this._revertChapterEcho(true)  // 防御：旧回响先静默消散
+    const list = this.abilitySystem.getOwnedList().filter(o => o.def && o.def.id !== 'chapter_echo')
+    if (list.length === 0) return
+    let chosen = null
+    for (let i = 0; i < Config.ABILITY.ECHO_REROLL_MAX; i++) {
+      const c = list[Math.floor(Math.random() * list.length)]
+      if (c.level < c.def.maxLevel) { chosen = c; break }  // 满级重随机
+    }
+    if (!chosen) {
+      Logger.info('Ability', '章节回响：重试耗尽（已持卡全满级），本章无回响')
+      return
+    }
+    const to = Math.min(chosen.def.maxLevel, chosen.level + echoLv)  // 不超 maxLevel
+    if (to === chosen.level) return
+    this._echoBoost = { id: chosen.def.id, from: chosen.level, to: to }
+    this.abilitySystem.owned.set(chosen.def.id, to)
+    this.abilitySystem.invalidateStats()
+    this._addFloatingText(this.screenW / 2, this.screenH * 0.45 + 24,
+      '回响：' + chosen.def.name + ' 临时+' + (to - chosen.level) + '级！', '#c8b6ff', 75)
+    Logger.info('Ability', '章节回响生效', { id: chosen.def.id, from: chosen.level, to: to })
+  }
+
+  /**
+   * R9 回响消散：按增量还原（若玩家本章真实选购过该卡，只摘除回响增量，不动自购等级）
+   * @param {boolean} [silent] - true=不弹"回响消散"（换章叠加防御路径）
+   */
+  _revertChapterEcho(silent) {
+    if (!this._echoBoost) return
+    const boost = this._echoBoost
+    const cur = this.abilitySystem.owned.get(boost.id) || 0
+    this.abilitySystem.owned.set(boost.id, Math.max(boost.from, cur - (boost.to - boost.from)))
+    this.abilitySystem.invalidateStats()
+    if (!silent) {
+      this._addFloatingText(this.screenW / 2, this.screenH * 0.4, '回响消散', '#c8b6ff', 60)
+    }
+    Logger.info('Ability', '回响消散', { id: boost.id, restoredTo: this.abilitySystem.owned.get(boost.id) })
+    this._echoBoost = null
+  }
+
   /**
    * [v1.3.0] 怪物被击杀：爆炸粒子 + 击杀经验（浮动文字 +10）
    * [v1.4.0] 拾荒者：击杀怪物 20%/级 掉随机道具（权重沿用 TYPE_WEIGHTS）
@@ -1138,6 +1569,12 @@ class Game {
    * @returns {Object|null}
    */
   _pickMissileTarget() {
+    // [v1.5.0] Boss 绝对优先（在场且可受击时全部火力锁定 Boss——章节高潮的火力聚焦）
+    if (this.boss && this.boss.hp > 0 && this.boss.state !== 'entering' &&
+        this.boss.state !== 'dying' && this.boss.state !== 'leaving') {
+      return this.boss
+    }
+
     let best = null
     let bestDist = Infinity
 
@@ -1196,6 +1633,28 @@ class Game {
 
     let hitSomething = false
     let killedMonster = null
+
+    // [v1.5.0] Boss 最优先判定（体型大易命中；猎手标记/屠戮者加成生效，
+    // 蜂群链路叠层对 Boss 不加成——防叠层秒杀 30HP 设计目标，D19）
+    if (this.boss && this.boss.hp > 0 && this.boss.state !== 'entering' &&
+        this.boss.state !== 'dying' && this.boss.state !== 'leaving' &&
+        missile.hitTest(this.boss)) {
+      const slayerLv = this.abilitySystem.owned.get('boss_slayer') || 0
+      const bossDamage = Config.MISSILE.DAMAGE + hunterLv + slayerLv
+      this.boss.takeDamage(bossDamage)
+      hitSomething = true
+      // 蜂群链路命中 Boss 只续窗不叠层（火力转移到召唤物时保留节奏）
+      if (linkLv > 0) {
+        this.abilitySystem.missileLinkWindow = Config.MISSILE.LINK_WINDOW_FRAMES
+      }
+      if (this.boss.hp <= 0) {
+        Logger.info('Boss', '导弹击杀 Boss', { name: this.boss.name, damage: bossDamage })
+        this._onBossVictory()
+      } else {
+        Logger.debug('Missile', '命中 Boss', { hp: this.boss.hp, damage: bossDamage })
+      }
+      return true
+    }
 
     // 怪物优先
     for (let i = this.monsters.length - 1; i >= 0; i--) {
@@ -1637,6 +2096,22 @@ class Game {
       return false
     }
 
+    // [v1.5.0] C7 厚皮（thick_skin）：0.3/级概率格挡怪系伤害（怪物/召唤物/Boss本体/羽刃弹幕；
+    // 管道/地面/天花板不格挡——C7 是"怪系生存卡"）。位置：时间扭曲之后、羽盾之前（廉价概率节点前置，
+    // 保住稀缺的羽盾/护盾层）。格挡成功断连击（与羽盾 N1 同语义，受击链内被命中即断）
+    if (pipe && (pipe.type === 'monster' || pipe.type === 'boss' || pipe.type === 'feather')) {
+      const thickLv = this.abilitySystem.owned.get('thick_skin') || 0
+      if (thickLv > 0 && Math.random() < Config.ABILITY.THICK_SKIN_BLOCK_PER_LV * thickLv) {
+        this.abilitySystem.resetCombo()
+        this.bird.invincibleBlink = 20
+        this.shakeFrames = 4
+        this.shakeIntensity = 2
+        this._addFloatingText(this.bird.x, this.bird.y - 30, '厚皮格挡!', '#cd7f32', 40)
+        Logger.info('Ability', '厚皮格挡', { lv: thickLv, source: pipe.type })
+        return false
+      }
+    }
+
     // [v1.4.0] 羽盾（回响之翼/铁羽）：§2.6 受击链最前置防御节点——挡 1 次伤害；
     // 铁羽：破羽盾给 30 帧/级无敌（consumeFeatherShield 内结算）；消耗断连击（N1 同语义）
     if (this.abilitySystem.consumeFeatherShield()) {
@@ -1695,12 +2170,26 @@ class Game {
     this.shakeIntensity = 4
     this.bird.invincibleBlink = 30
     this.abilitySystem.invincibleFrames = this.abilitySystem.getInvincibleFrames()
+    // [v1.5.0] U8 猎手直觉（boss_slayer）：Boss 战中受击额外 +30 帧/级无敌（Boss 战高压补偿）
+    if (!dead && this.chapterSystem.isBossActive()) {
+      const slayerLv = this.abilitySystem.owned.get('boss_slayer') || 0
+      if (slayerLv > 0) {
+        this.abilitySystem.invincibleFrames += Config.ABILITY.BOSS_SLAYER_INVINCIBLE_PER_LV * slayerLv
+      }
+    }
 
     if (dead) {
       // 凤凰复活
       if (this.abilitySystem.tryPhoenix()) {
         this._startPhoenixRevive()
         return false
+      }
+
+      // [v1.5.0] Boss 战战败保护（方案A，D19）：致死一击已走完整受击链（上方格挡/羽盾/护盾
+      // 均未拦住），HP 真归零时不 gameover——HP 钳 1 + 无敌 120 帧 + Boss 长鸣离场，20 管后满血回归。
+      // 边界：maxHp===1（血契流）无血可扣不兜底（方案原文"战败=死"）；凤凰优先（上方已判）。
+      if (this.chapterSystem.isBossActive() && this.abilitySystem.maxHp > 1) {
+        return this._onBossDefeat()
       }
 
       // 真正死亡
@@ -1949,6 +2438,8 @@ class Game {
     for (const pipe of this.pipes) pipe.render(ctx)
     this._drawPipeSense()   // [v1.4.0] 管感：高亮下一根管道间隙
     for (const monster of this.monsters) monster.render(ctx)   // [v1.3.0]
+    if (this.boss) this.boss.render(ctx)                       // [v1.5.0] Boss 本体（含冲锋预警/阶段变色）
+    for (const f of this.feathers) f.render(ctx)               // [v1.5.0] Boss 羽刃弹幕
     for (const missile of this.missiles) missile.render(ctx)   // [v1.3.0]
     for (const orb of this.orbs) orb.render(ctx)
     for (const item of this.items) item.render(ctx)   // [v1.1.0]
@@ -1992,6 +2483,11 @@ class Game {
     // [v1.5.0] 章节转场演出覆盖层（§4.3：白闪/色带擦除/标题卡，覆盖世界与 HUD）
     if (this.chapterSystem.isTransitioning()) {
       this._drawChapterTransition()
+    }
+
+    // [v1.5.0] Boss 出场演出覆盖层（§4.11：暗角收拢30帧，gather/enter 阶段保持半暗角聚焦）
+    if (this.chapterSystem.isBossIntro()) {
+      this._drawBossIntro()
     }
 
     // 状态覆盖层
@@ -2132,6 +2628,76 @@ class Game {
       ctx.fillText(tr.subtitle, cx, cy + 28)
       ctx.globalAlpha = 1.0
     }
+  }
+
+  /**
+   * [v1.5.0] Boss 出场演出覆盖层（§4.11）：暗角收拢 30 帧（四周黑色径向压迫）
+   * → gather/enter 阶段保持半强度暗角聚焦战场；"雷云聚集……"文案由 ChapterSystem 浮动文字呈现。
+   */
+  _drawBossIntro() {
+    const st = this.chapterSystem.getBossIntroRenderState()
+    if (!st) return
+    const ctx = this.ctx
+    const B = Config.BOSS
+    let strength
+    if (st.phase === 'vignette') {
+      strength = st.frame / B.INTRO_VIGNETTE_FRAMES        // 0 → 1 收拢
+    } else {
+      strength = 0.75                                       // gather/enter 保持聚焦
+    }
+    const maxA = 0.55 * Math.min(1, strength)
+    // 四边暗角（上/下/左/右渐变压黑）
+    const edge = Math.round(this.screenH * 0.22)
+    const grads = [
+      ctx.createLinearGradient(0, 0, 0, edge),
+      ctx.createLinearGradient(0, this.screenH, 0, this.screenH - edge),
+      ctx.createLinearGradient(0, 0, edge, 0),
+      ctx.createLinearGradient(this.screenW, 0, this.screenW - edge, 0)
+    ]
+    for (let i = 0; i < 4; i++) {
+      grads[i].addColorStop(0, 'rgba(10, 8, 20, ' + maxA.toFixed(3) + ')')
+      grads[i].addColorStop(1, 'rgba(10, 8, 20, 0)')
+      ctx.fillStyle = grads[i]
+      if (i === 0) ctx.fillRect(0, 0, this.screenW, edge)
+      else if (i === 1) ctx.fillRect(0, this.screenH - edge, this.screenW, edge)
+      else if (i === 2) ctx.fillRect(0, 0, edge, this.screenH)
+      else ctx.fillRect(this.screenW - edge, 0, edge, this.screenH)
+    }
+  }
+
+  /**
+   * [v1.5.0] Boss 血条（§4.9）：顶部居中宽 60% 高 10px，金色描边；
+   * P2 填充变红 + 名称后缀"·怒"。entering/dying 期血条照常显示（演出可见性）。
+   * @param {number} cx - 中心 X
+   * @param {number} cy - 中心 Y
+   */
+  _drawBossHPBar(cx, cy) {
+    const boss = this.boss
+    if (!boss || boss.maxHp <= 0) return
+    const ctx = this.ctx
+    const barW = this.screenW * Config.BOSS.HP_BAR_WIDTH_RATIO
+    const barH = Config.BOSS.HP_BAR_HEIGHT
+    const barX = cx - barW / 2
+    const barY = cy - barH / 2
+    const ratio = Math.max(0, boss.hp / boss.maxHp)
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+    ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4)
+    ctx.fillStyle = boss.phase === 2 ? '#e03030' : '#c04ae0'
+    if (ratio > 0) ctx.fillRect(barX, barY, barW * ratio, barH)
+    ctx.strokeStyle = '#ffd700'
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4)
+
+    ctx.font = 'bold 10px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 3
+    ctx.strokeStyle = '#000000'
+    ctx.fillStyle = '#ffffff'
+    const label = boss.name + (boss.phase === 2 ? ' · 怒' : '') + ` ${Math.max(0, boss.hp)}/${boss.maxHp}`
+    ctx.strokeText(label, cx, barY + barH + 9)
+    ctx.fillText(label, cx, barY + barH + 9)
   }
 
   // [v1.1.0] 速度包边框特效
@@ -2479,10 +3045,15 @@ class Game {
     ctx.fillText(`Ch${chapterHud.id} · ${chapterHud.pipes}/${chapterHud.target}`, this.screenW / 2, chapterY)
     ctx.globalAlpha = 1.0
 
+    // ----- [v1.5.0] Boss 血条（§4.9：顶部居中宽 60% 高 10px，P2 变红；Boss 战期间代替连击行）-----
+    if (this.chapterSystem.isBossActive() && this.boss) {
+      this._drawBossHPBar(this.screenW / 2, chapterY + 14)
+    }
+
     // ----- 连击计数 -----
-    // [v1.5.0] 章节进度占经验条下方第一行，连击/天气/驯化行依次顺延
+    // [v1.5.0] 章节进度占经验条下方第一行，连击/天气/驯化行依次顺延；Boss 战期间让位给血条
     const comboLv = this.abilitySystem.owned.get('combo_heart') || 0
-    if (comboLv > 0 && this.abilitySystem.comboCount > 0) {
+    if (!this.chapterSystem.isBossActive() && comboLv > 0 && this.abilitySystem.comboCount > 0) {
       const threshold = this.abilitySystem.getStat('comboThreshold')
       ctx.font = 'bold 11px monospace'
       ctx.fillStyle = '#ffaa00'
@@ -2747,11 +3318,18 @@ class Game {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillStyle = '#ffd700'
-    ctx.fillText('升级!', cx, this.screenH * 0.15)
+    // [v1.5.0] 面板标题按模式切换（大礼包自选/章节祝福/普通升级）
+    const panelTitles = { bossCard: '章节大礼包!', blessing: '章节祝福', levelup: '升级!' }
+    ctx.fillText(panelTitles[this._panelMode] || '升级!', cx, this.screenH * 0.15)
 
     ctx.font = '14px monospace'
     ctx.fillStyle = '#ffffff'
-    ctx.fillText(`Lv.${this.expSystem.level} — 选择能力`, cx, this.screenH * 0.15 + 28)
+    const panelSubs = {
+      bossCard: 'Boss 讨伐奖励 — 三选一',
+      blessing: '选择一道祝福（本局永久）',
+      levelup: `Lv.${this.expSystem.level} — 选择能力`
+    }
+    ctx.fillText(panelSubs[this._panelMode] || panelSubs.levelup, cx, this.screenH * 0.15 + 28)
 
     const choices = this._currentChoices || []
     if (choices.length === 0) return
@@ -2986,10 +3564,37 @@ class Game {
 
     ctx.textAlign = 'center'
 
+    // [v1.5.0] Boss 讨伐徽章行（§4.10：每击杀一只 Boss 留下章节徽章，能力展示上方）
+    let badgeRowH = 0
+    if (this.bossBadges.length > 0) {
+      const badgeY = panelY + panelH + 22
+      ctx.font = '12px monospace'
+      ctx.fillStyle = '#ffd700'
+      ctx.fillText('讨伐徽章', cx, badgeY)
+      const bSize = 24
+      const bGap = 8
+      const bTotalW = this.bossBadges.length * (bSize + bGap) - bGap
+      let bx = (this.screenW - bTotalW) / 2
+      for (const chId of this.bossBadges) {
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.18)'
+        ctx.beginPath()
+        ctx.arc(bx + bSize / 2, badgeY + 20, bSize / 2, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = '#ffd700'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+        ctx.font = 'bold 10px monospace'
+        ctx.fillStyle = '#ffd700'
+        ctx.fillText(`Ch${chId}`, bx + bSize / 2, badgeY + 20)
+        bx += bSize + bGap
+      }
+      badgeRowH = 44
+    }
+
     // 能力展示
     const owned = this.abilitySystem.getOwnedList()
     if (owned.length > 0) {
-      const abilityY = panelY + panelH + 25
+      const abilityY = panelY + panelH + 25 + badgeRowH
 
       ctx.font = '12px monospace'
       ctx.fillStyle = '#888888'

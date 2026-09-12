@@ -86,6 +86,14 @@ class AbilitySystem {
     this.phantomWindowFrames = 0   // 幻影舞步：黄金窗剩余帧（只刷新不叠加）
     this.weatherConcurrent = 0     // 风暴之眼：当前天气并发数（由 Game 每帧写入）
 
+    // [v1.5.0] 章节/Boss 状态（步骤C）
+    this.blessingExpMult = 1       // 成长祝福：经验独立乘区（每层 ×(1+0.25·masterMult)，本局永久）
+    this.blessingItemBonus = 0     // 狩猎祝福：道具率 +pp（每层 +0.08·masterMult，本局永久）
+    this.blessingTempHpCapBonus = 0 // 活力祝福：临时HP 上限 +1/次（§4.10"临时HP+1（上限+1）"）
+    this.bossesDefeated = 0        // 已击败 Boss 数（R10 战利品陈列叠层计数，由 Game 写入）
+    this.chapterFirstPanelDue = true // E7 章节之主：本升级面板若为"每章首次"则必含 1 史诗
+                                     // （run 起点=Ch1 首面板；进新章由 Game 置 true；每次弹板后消耗）
+
     // [v1.2.2] N7 特效事件队列（由Game.js每帧取出并生成内联粒子特效）
     this.fxEvents = []
 
@@ -125,6 +133,22 @@ class AbilitySystem {
       if (guaranteed) {
         choices[choices.length - 1] = guaranteed
         Logger.info('Ability', '幸运光环Lv3质变：保底稀有+', { guaranteed: guaranteed.id })
+      }
+    }
+
+    // [v1.5.0] E7 章节之主：每章首次升级面板必含 1 张史诗（面板无史诗时替换最后一张）。
+    // 与 N9 软保底不叠加（方案明确）：替换成功即消耗当次软保底计数（resetPity）。
+    // chapterFirstPanelDue 由 Game 在进新章/开局时置 true，每次弹板后消耗（无论是否持卡）。
+    if (this.chapterFirstPanelDue) {
+      this.chapterFirstPanelDue = false
+      if ((this.owned.get('chapter_master') || 0) > 0 && choices.length > 0 &&
+          !choices.some(ab => (ab.rarity || 'common') === 'epic')) {
+        const epic = Registry.rollEpic(this.owned, choices.map(c => c.id), playerLevel || 1)
+        if (epic) {
+          choices[choices.length - 1] = epic
+          Registry.resetPity()  // 消耗当次软保底计数（不叠加）
+          Logger.info('Ability', '章节之主：首面板史诗保底', { guaranteed: epic.id })
+        }
       }
     }
 
@@ -237,6 +261,7 @@ class AbilitySystem {
       berserkMultiplier: 1.0,
       hasBounceShield: false,  // [v1.1.5] 弹力护盾
       hasIceCrystal: false,    // [v1.2.0] 冰晶护体
+      itemSpawnBonus: 0,       // [v1.5.0] 道具率加成（狩猎祝福/战利品陈列，SpawnSystem 读取）
     }
 
     const lv = (id) => this.owned.get(id) || 0
@@ -299,6 +324,21 @@ class AbilitySystem {
     if (bloodPactLv > 0) {
       s.expMultiplier *= (1 + Config.ABILITY.BLOOD_PACT_BONUS_PER_LV * bloodPactLv)
     }
+
+    // [v1.5.0] 成长祝福：经验独立乘区（本局永久，E7 章节之主 +50% 已在授予时计入倍率）
+    s.expMultiplier *= this.blessingExpMult
+
+    // [v1.5.0] R10 战利品陈列：每个已击败 Boss 经验 +15%/级（线性叠乘，TROPHY_MAX_STACKS 封顶；
+    // 未击败前零收益）
+    const trophyLv = lv('trophy_wall')
+    const trophyStacks = Math.min(this.bossesDefeated, Config.ABILITY.TROPHY_MAX_STACKS)
+    if (trophyLv > 0 && trophyStacks > 0) {
+      s.expMultiplier *= (1 + Config.ABILITY.TROPHY_EXP_PER_LV * trophyLv * trophyStacks)
+    }
+
+    // [v1.5.0] 道具率加成（pp 转小数）：狩猎祝福 + 战利品陈列（SpawnSystem 生成处读取）
+    s.itemSpawnBonus = this.blessingItemBonus +
+      (trophyLv > 0 ? Config.ABILITY.TROPHY_ITEM_PP_PER_LV * trophyLv * trophyStacks : 0)
 
     // 慢速世界: 障碍速度 -10%/级
     s.scrollSpeedMultiplier = Math.max(0.5, 1 - 0.10 * lv('slow_world'))
@@ -645,6 +685,7 @@ class AbilitySystem {
    * [v1.1.5] 添加护盾层（道具拾取/护盾爆发等），不超过最大层数
    * [v1.4.0] 超载神盾 Lv3 质变：满层溢出部分转临时HP（上限 OVERDRIVE_TEMP_HP_CAP=2，
    *           HUD 空心心形与普通HP区分；超载只转HP不产羽盾——羽盾全局硬顶2层不变）
+   * [v1.5.0] 活力祝福：临时HP 上限 +1/次（blessingTempHpCapBonus，§4.10"临时HP+1（上限+1）"）
    */
   addShieldLayer(amount) {
     const before = this.shieldLayers
@@ -655,8 +696,9 @@ class AbilitySystem {
     // 溢出转化（仅 Lv3 质变生效）
     const overflow = amount - applied
     const odLv = this.owned.get('aegis_overdrive') || 0
-    if (overflow > 0 && odLv >= 3 && this.tempHp < Config.SHIELD.OVERDRIVE_TEMP_HP_CAP) {
-      const gained = Math.min(overflow, Config.SHIELD.OVERDRIVE_TEMP_HP_CAP - this.tempHp)
+    const tempCap = Config.SHIELD.OVERDRIVE_TEMP_HP_CAP + this.blessingTempHpCapBonus
+    if (overflow > 0 && odLv >= 3 && this.tempHp < tempCap) {
+      const gained = Math.min(overflow, tempCap - this.tempHp)
       this.tempHp += gained
       this._emitFx('temp_hp')
       Logger.info('Shield', '超载神盾溢出转临时HP', { overflow: overflow, gained: gained, tempHp: this.tempHp })
@@ -664,6 +706,31 @@ class AbilitySystem {
 
     if (this.shieldLayers > before) this._emitFx('shield')  // [v1.2.2] N7 护盾获得特效
     Logger.info('Shield', '获得护盾层', { before, after: this.shieldLayers, max: this.maxShieldLayers })
+  }
+
+  /**
+   * [v1.5.0] 活力祝福：直接授予临时HP（走统一上限 = OVERDRIVE_TEMP_HP_CAP + 祝福上限加成）
+   * @param {number} n
+   */
+  grantTempHp(n) {
+    const tempCap = Config.SHIELD.OVERDRIVE_TEMP_HP_CAP + this.blessingTempHpCapBonus
+    const gained = Math.min(n, Math.max(0, tempCap - this.tempHp))
+    if (gained > 0) {
+      this.tempHp += gained
+      this._emitFx('temp_hp')
+      Logger.info('Shield', '活力祝福临时HP', { gained: gained, tempHp: this.tempHp, cap: tempCap })
+    }
+  }
+
+  /**
+   * [v1.5.0] R10 战利品陈列：已击败 Boss 数同步（变化时刷新缓存）
+   * @param {number} n
+   */
+  setBossesDefeated(n) {
+    if (this.bossesDefeated !== n) {
+      this.bossesDefeated = n
+      this.invalidateStats()
+    }
   }
 
   // ==================== [v1.4.0] 羽盾系统（回响之翼/铁羽） ====================

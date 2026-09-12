@@ -218,6 +218,76 @@ class AbilityRegistry {
     }
     return pool[pool.length - 1].ability
   }
+
+  /**
+   * [v1.5.0] E7 章节之主：每章首次升级面板必含 1 张史诗——从史诗候选中按权重抽 1 张
+   * （满级卡已移出；与 N9 软保底不叠加：替换后消耗当次软保底计数，见 AbilitySystem.getChoices）
+   * @param {Map} owned
+   * @param {string[]} excludeIds - 已在面板中的卡（避免重复）
+   * @param {number} playerLevel
+   * @returns {Object|null} 能力定义或 null（无可选史诗）
+   */
+  rollEpic(owned, excludeIds, playerLevel) {
+    const excluded = {}
+    for (const id of excludeIds) excluded[id] = true
+    const pool = []
+    const coreBoost = this._coreBoostActive(owned)
+    for (const ab of Abilities) {
+      if ((ab.rarity || 'common') !== 'epic') continue
+      if (excluded[ab.id]) continue
+      const currentLevel = owned.get(ab.id) || 0
+      if (currentLevel >= ab.maxLevel) continue
+      pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel, coreBoost) })
+    }
+    if (pool.length === 0) return null
+    const totalWeight = pool.reduce((sum, c) => sum + c.weight, 0)
+    let r = Math.random() * totalWeight
+    for (const c of pool) {
+      r -= c.weight
+      if (r <= 0) return c.ability
+    }
+    return pool[pool.length - 1].ability
+  }
+
+  /**
+   * [v1.5.0] Boss 大礼包自选面板（§4.10-①）：特殊 3 选 1 = 1 史诗 + 2 珍贵（满级卡已移出）。
+   * 池子不足时降级兜底（史诗缺→珍贵补位；珍贵缺→史诗/稀有补位；全缺→返回 null 走定额补偿），
+   * 保证面板要么 3 张、要么 null，绝不出现 1-2 张的残版面。
+   * @param {Map} owned
+   * @param {number} playerLevel
+   * @returns {Object[]|null}
+   */
+  rollBossRewardChoices(owned, playerLevel) {
+    const picked = []
+    const pickedIds = {}
+    const pickFrom = (rarityId) => {
+      const pool = []
+      const coreBoost = this._coreBoostActive(owned)
+      for (const ab of Abilities) {
+        if ((ab.rarity || 'common') !== rarityId) continue
+        if (pickedIds[ab.id]) continue
+        const currentLevel = owned.get(ab.id) || 0
+        if (currentLevel >= ab.maxLevel) continue
+        pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel, coreBoost) })
+      }
+      if (pool.length === 0) return null
+      const totalWeight = pool.reduce((sum, c) => sum + c.weight, 0)
+      let r = Math.random() * totalWeight
+      let chosen = pool[pool.length - 1].ability
+      for (const c of pool) {
+        r -= c.weight
+        if (r <= 0) { chosen = c.ability; break }
+      }
+      pickedIds[chosen.id] = true
+      picked.push(chosen)
+      return chosen
+    }
+    // 1 史诗 + 2 珍贵；缺位按 epic→rare→uncommon 顺序降级补位
+    if (!pickFrom('epic')) pickFrom('rare')
+    if (!pickFrom('rare')) pickFrom('epic')
+    if (!pickFrom('rare')) { if (!pickFrom('epic')) pickFrom('uncommon') }
+    return picked.length === 3 ? picked : null
+  }
 }
 
 // 导出单例
