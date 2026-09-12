@@ -126,7 +126,12 @@ module.exports = {
       DIRECT_CAP_RATIO: 1.5,   // 单次获得经验直接入池上限 = 当前升级所需 ×1.5，超出部分入银行
       CAP_RATIO: 2,            // 银行余额上限 = 当前升级所需 ×2，超限部分自动入池（防囤积刹车①）
       INTEREST_PER_LV: 0.05    // 每 10s 生息 5%/级（生息节奏对齐 WEATHER.CHECK_INTERVAL，不新增逐帧计时器）
-    }
+    },
+
+    // [v1.4.0] 顿悟（enlightenment）：经验达升级所需 200% 时一次升 2 级（消耗 200% 额度），
+    // 每局限 3 次硬刹车（防"全程双升"等级失控）；双面板连弹由既有 B2 保护覆盖，不另写
+    ENLIGHTEN_RATIO: 2,
+    ENLIGHTEN_MAX_PER_RUN: 3
   },
 
   // ==================== [v1.1.0] HP血条系统 ====================
@@ -153,7 +158,12 @@ module.exports = {
     // [v1.4.0] 镜面护盾（mirror_shield）：护盾被击破时冲击波
     MIRROR_SHOCK_RADIUS_BASE: 100,  // 冲击波半径基础值(px)
     MIRROR_SHOCK_RADIUS_PER_LV: 40, // 每级半径增量(px)
-    MIRROR_SHOCK_CD: 180            // 冲击波触发CD(帧)=3s，防"反复破盾刷波"回路（硬刹车）
+    MIRROR_SHOCK_CD: 180,           // 冲击波触发CD(帧)=3s，防"反复破盾刷波"回路（硬刹车）
+
+    // [v1.4.0] 超载神盾（aegis_overdrive）：Lv1-2 护盾恢复CD -15%/级（Lv3 保留 Lv2 的 -30%，不叠加到 -45%）；
+    // Lv3 质变：护盾满层时新护盾转 +1 临时HP（上限+2，HUD 空心心形与普通HP区分）
+    OVERDRIVE_CD_REDUCT_PER_LV: 0.15,
+    OVERDRIVE_TEMP_HP_CAP: 2
   },
 
   // ==================== [v1.1.0] 道具系统 ====================
@@ -243,7 +253,26 @@ module.exports = {
     RACK_FAN_STEP: 0.25,   // 挂架扇形多发相邻角度步长（rad）
     WIDTH: 16,             // 弹头长度
     HEIGHT: 8,             // 弹头宽度
-    TRAIL_LENGTH: 10       // 拖尾点数
+    TRAIL_LENGTH: 10,      // 拖尾点数
+
+    // [v1.4.0] 火力覆盖（missile_barrage）：每 (14-2(lv-1))s 自动发射 1 枚导弹；
+    // 独立枪口闪光特效，不得用道具拾取特效（防玩家误认导弹来源）
+    BARRAGE_BASE_SEC: 14,
+    BARRAGE_REDUCTION_SEC: 2,
+
+    // [v1.4.0] 猎手标记（hunter_mark）：导弹伤害 +lv，击杀触发连锁爆炸；
+    // 硬规则：连锁爆炸击杀不再触发二次连锁（防指数回路）
+    HUNTER_CHAIN_BASE_RADIUS: 50,   // 连锁爆炸半径基础值(px)
+    HUNTER_CHAIN_RADIUS_PER_LV: 10, // 每级半径增量(px)
+
+    // [v1.4.0] 蜂群链路（missile_link）：导弹命中后 1.5s 窗内下一发伤害+1，叠层上限 1+lv 硬封顶（防指数回路）
+    LINK_WINDOW_FRAMES: 90,         // 连击窗口（帧）=1.5s
+
+    // [v1.4.0] 导弹风暴（missile_storm）：拾取导弹改 (4+lv)s 连发（每秒 2 枚）；
+    // 期间再拾取刷新时长（不叠加）；同屏 MAX_ALIVE 上限硬刹车；连发期间道具权重不变（防自喂养回路）
+    STORM_BASE_SEC: 4,
+    STORM_SEC_PER_LV: 1,
+    STORM_RATE_FRAMES: 30           // 连发间隔（帧）=每秒2枚
   },
 
   // ==================== 经验球参数 ====================
@@ -282,6 +311,92 @@ module.exports = {
     // [v1.4.0] 连击种子（combo_seed）：断连击保留 lv 层；
     // 硬刹车：持连击之心时保留 ≤ 无敌阈值-1（防"保留3层+阈值2"变相永动，N1 教训），未持时上限 4
     COMBO_SEED_NO_HEART_CAP: 4,
+
+    // [v1.4.0] 回响之翼（echo_wing）：每过 (9-2(lv-1)) 管存 1 层羽盾（挡 1 次伤害，受击链最前置）
+    ECHO_WING_BASE_PIPES: 9,
+    ECHO_WING_PIPES_REDUCTION: 2,
+    // [v1.4.0] 铁羽（iron_feather）：羽盾上限+1，破羽盾给 30 帧/级无敌；
+    // 羽盾全局上限 2 层硬顶（回响1+铁羽1），不允许任何第三来源（防"羽盾无限续"变下一个 7 层护盾）
+    FEATHER_SHIELD_MAX: 2,
+    IRON_FEATHER_INVINCIBLE_PER_LV: 30,
+
+    // [v1.4.0] 血契（blood_pact）：最大HP-1 换 得分/经验+30%/级 + 受击无敌+1s/级；
+    // 保险丝：持血契时狂暴增益减半（写死，§6.3 专项验证）；凤凰复活语义=回满当前上限
+    BLOOD_PACT_HP_COST: 1,
+    BLOOD_PACT_BONUS_PER_LV: 0.3,
+    BLOOD_PACT_INVINCIBLE_FRAMES_PER_LV: 60,
+    BLOOD_PACT_BERSERK_FACTOR: 0.5,
+
+    // [v1.4.0] 幻影舞步（phantom_edge）：擦边开 90 帧黄金窗，窗内擦边判定×2、经验×(2+lv)；
+    // 硬规则：窗内擦边只刷新窗口、不叠加倍率（防指数回路）；窗口期金色残影
+    PHANTOM_WINDOW_FRAMES: 90,
+
+    // [v1.4.0] 时之晶（time_crystal）：寄生时间扭曲同一触发点（同 CD 同源，不独立计时），
+    // 冻结怪物/弹幕 (1+0.5(lv-1))s，鸟可动；冻结只停移动/追踪，不取消碰撞判定（保铁喙协同）
+    TIME_CRYSTAL_BASE_SEC: 1,
+    TIME_CRYSTAL_PER_LV_SEC: 0.5,
+
+    // [v1.4.0] 连击之心 Lv3 质变：无敌期间每过 1 管 +5exp（不延长无敌，奖励方向改经验不碰生存边）
+    COMBO_HEART_L3_EXP: 5,
+
+    // [v1.4.0] 缩小射线 Lv5 质变：Lv5 间隙不再扩大（+100px 已触及挑战下限），改为擦边判定窗口 +10px
+    SHRINK_RAY_GAP_CAP_LV: 4,
+    SHRINK_RAY_L5_NEAR_MISS_BONUS: 10,
+
+    // [v1.4.0] 先知（oracle）：升级面板协同标注表（静态表，必须与代码实际结算一致；只标注不推荐）
+    // ⚠️ 反协同对：顺风耳×御风者（减弱风力=削弱助推）、风暴之子×气候适应（缩短天气=削弱增益窗口）
+    ORACLE_ANTI_PAIRS: [
+      ['wind_reader', 'wind_rider'],
+      ['storm_child', 'climate_adapt']
+    ],
+    // 🔗 协同对（节选主流派官方搭档，与设计 §3.1 流派表一致）
+    ORACLE_SYNERGY_PAIRS: [
+      ['missile_barrage', 'missile_rack'], ['missile_barrage', 'hunter_mark'],
+      ['missile_rack', 'missile_storm'], ['missile_link', 'missile_storm'],
+      ['missile_link', 'missile_barrage'], ['hunter_mark', 'scavenger'],
+      ['scavenger', 'magnet'], ['supply_line', 'magnet'],
+      ['echo_wing', 'iron_feather'], ['echo_wing', 'shrink_ray'], ['echo_wing', 'slow_world'],
+      ['time_crystal', 'time_warp'], ['time_crystal', 'iron_beak'],
+      ['iron_beak', 'physique'], ['iron_beak', 'blood_pact'], ['iron_beak', 'survivor_instinct'],
+      ['exp_bank', 'enlightenment'], ['exp_bank', 'greed'], ['exp_bank', 'exp_resonance'],
+      ['enlightenment', 'greed'], ['enlightenment', 'exp_resonance'],
+      ['combo_seed', 'combo_heart'], ['feather_dance', 'double_jump'], ['feather_dance', 'combo_heart'],
+      ['phantom_edge', 'edge_focus'], ['phantom_edge', 'feather_dance'], ['phantom_edge', 'combo_heart'],
+      ['edge_focus', 'combo_heart'], ['edge_focus', 'shrink_ray'],
+      ['bounce_shield', 'mirror_shield'], ['mirror_shield', 'aegis_overdrive'],
+      ['aegis_overdrive', 'toughness'], ['aegis_overdrive', 'bounce_shield'],
+      ['eye_of_storm', 'storm_child'], ['eye_of_storm', 'steady_charm'], ['eye_of_storm', 'exp_tide'],
+      ['chaos_dice', 'storm_child'], ['chaos_dice', 'climate_adapt'],
+      ['wind_rider', 'storm_child'], ['ice_crystal', 'storm_child'],
+      ['exp_tide', 'storm_child'], ['exp_tide', 'steady_charm'],
+      ['blood_pact', 'regeneration'], ['blood_pact', 'echo_wing'],
+      ['survivor_instinct', 'phoenix'], ['lucky', 'oracle'], ['lucky', 'exp_bank'],
+      ['pipe_sense', 'oracle'], ['shrink_ray', 'combo_heart'], ['double_jump', 'combo_heart']
+    ],
+    // ⭐ 核心判定：流派核心卡 + 已持该流派 ≥1 张其他核心 或 ≥2 张协同件（流派划分同设计 §3.1）
+    ORACLE_ARCHETYPES: [
+      { core: ['toughness', 'bounce_shield', 'shield_burst'],
+        support: ['aegis_overdrive', 'mirror_shield', 'echo_wing', 'iron_feather', 'vitality', 'regeneration', 'phoenix'] },
+      { core: ['combo_heart', 'shrink_ray'],
+        support: ['edge_focus', 'phantom_edge', 'feather_dance', 'combo_seed', 'double_jump'] },
+      { core: ['greed', 'exp_resonance', 'lucky'],
+        support: ['exp_bank', 'enlightenment', 'double_score', 'supply_line', 'oracle'] },
+      { core: ['storm_child', 'wind_rider', 'ice_crystal'],
+        support: ['steady_charm', 'chaos_dice', 'climate_adapt', 'exp_tide', 'eye_of_storm'] },
+      { core: ['missile_barrage', 'missile_rack'],
+        support: ['scavenger', 'hunter_mark', 'missile_link', 'missile_storm', 'magnet', 'supply_line'] },
+      { core: ['iron_beak', 'physique'],
+        support: ['survivor_instinct', 'blood_pact', 'time_crystal', 'combo_heart'] },
+      { core: ['blood_pact', 'berserk'],
+        support: ['physique', 'echo_wing', 'regeneration', 'vitality'] }
+    ],
+    // [v1.4.0] 风暴驯化互斥表（D7）：已驯化天气 → 作废/反协同卡，抽卡 UI 加"已驯化"标记
+    // 冰雹驯化→冰晶护体作废（冰雹不再伤人）；风驯化→顺风耳会把助推也削弱；雨驯化→雨衣失去意义
+    TAMED_MUTEX: {
+      hail: ['ice_crystal'],
+      wind: ['wind_reader'],
+      rain: ['raincoat']
+    },
 
     // [v1.1.3] 新能力权重倍率
     NEW_ABILITY_BONUS: 1.3,  // 未拥有能力权重额外乘数
@@ -347,6 +462,18 @@ module.exports = {
     // 只免疫负面部分（御风者等增益保留），免疫判定在各 debuff 应用点而非总开关
     STEADY_CHARM_BASE_SEC: 3,
     STEADY_CHARM_PER_LV_SEC: 3,
+
+    // [v1.4.0] 风暴驯化（chaos_dice）：获得时驯化当前天气（无天气则驯化下一种）：
+    // 风→50% 助推（恒有利方向）；雨→积水不加重力；冰雹→10% 概率掉 exp 不伤人
+    TAMED_WIND_BOOST_FACTOR: 0.5,
+    TAMED_HAIL_EXP_CHANCE: 0.1,
+    TAMED_HAIL_EXP_AMOUNT: 5,
+
+    // [v1.4.0] 风暴之眼（eye_of_storm）：天气并发≥2 种时 debuff -20%/级、经验 ×(1+0.5/级)；
+    // 单天气零收益（与经验潮汐错位：潮汐管单天气，风眼管并发）；240s 前基本白板——后期卡
+    EYE_OF_STORM_MIN_CONCURRENT: 2,
+    EYE_OF_STORM_DEBUFF_REDUCT_PER_LV: 0.2,
+    EYE_OF_STORM_EXP_PER_LV: 0.5,
 
     WIND: {
       MIN_DURATION: 900,       // 15s

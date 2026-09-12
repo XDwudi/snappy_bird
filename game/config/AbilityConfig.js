@@ -1,13 +1,16 @@
 /**
  * AbilityConfig.js - 能力数据配置 [v1.4.0]
  *
- * 共41个能力：28(旧) + 13([v1.4.0]批次1：common×6 + uncommon×7)
+ * 共55个能力：28(旧) + 27([v1.4.0]：批次1 common×6+uncommon×7，批次2 rare×8+epic×6)
  * v1.1.0变更：提升15个旧能力等级上限 + 新增7个能力
  * v1.1.3变更：为每个能力添加稀有度(rarity)
  * v1.2.0变更：新增6个环境相关能力
  * v1.4.0变更：批次1新增13卡（求生本能/锐利目光/拾荒者/补给线/连击种子/管感/
- *             导弹挂架/铁喙/经验银行/定风珠/镜面护盾/经验潮汐/羽舞），
- *             effectText 与开发方案_v1.4.0 §2.1/§2.2 逐卡一致；rare/epic 为批次2
+ *             导弹挂架/铁喙/经验银行/定风珠/镜面护盾/经验潮汐/羽舞）；
+ *             批次2新增14卡（火力覆盖/超载神盾/猎手标记/回响之翼/风暴之眼/蜂群链路/铁羽/先知/
+ *             导弹风暴/风暴驯化/血契/幻影舞步/顿悟/时之晶）+ 旧卡质变补丁
+ *             （连击之心Lv3/缩小射线Lv5/幸运光环Lv3）+ 凤凰文案对齐血契语义；
+ *             effectText 与开发方案_v1.4.0 §2.3/§2.4/§2.5 逐卡一致
  */
 
 const ABILITY = require('./GameConfig.js').ABILITY
@@ -193,7 +196,8 @@ const Abilities = [
     rarity: 'epic',          // [v1.1.3]
     maxLevel: 2,
     // [v1.2.1] 文案修正：升级会重置已用次数，实际为"每级复活次数+1"（Lv2一局最多复活3次）
-    effectText: (lv) => `复活次数 +1/级，恢复满HP`
+    // [v1.4.0] 血契语义同步：复活=HP回满"当前上限"（血契降低上限后不回满旧上限）
+    effectText: (lv) => `复活次数 +1/级，HP回满当前上限`
   },
   // [v1.1.0新增]
   {
@@ -269,7 +273,10 @@ const Abilities = [
     category: ABILITY.CATEGORY.SPECIAL,
     rarity: 'rare',          // [v1.1.3]
     maxLevel: 3,
-    effectText: (lv) => `升级选项 +${lv}（共${3 + lv}选1）`
+    // [v1.4.0] Lv3 质变：每次升级面板必含 1 张稀有及以上（与 N9 软保底同向不冲突，见 Registry/Game 注释）
+    effectText: (lv) => lv >= 3
+      ? `升级选项 +${lv}（共${3 + lv}选1），必含1张稀有及以上`
+      : `升级选项 +${lv}（共${3 + lv}选1）`
   },
   {
     id: 'combo_heart',
@@ -279,9 +286,10 @@ const Abilities = [
     category: ABILITY.CATEGORY.SPECIAL,
     rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 3,
+    // [v1.4.0] Lv3 质变：无敌期间每过 1 管 +5exp（不延长无敌，奖励改经验不碰生存边）
     effectText: (lv) => {
       const threshold = Math.max(2, 5 - lv)
-      return `连过${threshold}管道，3s无敌`
+      return lv >= 3 ? `连过${threshold}管道，3s无敌；无敌期每过1管+5exp` : `连过${threshold}管道，3s无敌`
     }
   },
   {
@@ -292,7 +300,8 @@ const Abilities = [
     category: ABILITY.CATEGORY.SPECIAL,
     rarity: 'uncommon',     // [v1.1.3]
     maxLevel: 5,
-    effectText: (lv) => `管道间隙 +${20 * lv}px`
+    // [v1.4.0] Lv5 质变：间隙不再扩大（+100px 已触及挑战下限），改为擦边判定窗口 +10px
+    effectText: (lv) => lv >= 5 ? `管道间隙 +80px，擦边窗口 +10px` : `管道间隙 +${20 * lv}px`
   },
   // [v1.1.0新增]
   {
@@ -473,6 +482,169 @@ const Abilities = [
     rarity: 'uncommon',
     maxLevel: 3,
     effectText: (lv) => `二段跳后3s内擦边窗口+${8 * lv}px`
+  },
+
+  // ==================== [v1.4.0] 能力扩展包·批次2：rare ×8 ====================
+  // R1 火力覆盖：猎杀火力流核心引擎；自动导弹用独立枪口闪光，不得用道具拾取特效
+  {
+    id: 'missile_barrage',
+    name: '火力覆盖',
+    icon: '🚀',
+    desc: '定时自动发射导弹',
+    category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'rare',
+    maxLevel: 3,
+    effectText: (lv) => `每${14 - 2 * (lv - 1)}s自动发射1枚导弹`
+  },
+  // R2 超载神盾：满级质变卡——Lv1-2 护盾恢复CD缩短（Lv3 保留-30%不叠加），
+  // Lv3 满层溢出护盾转临时HP（上限+2，HUD 空心心形）；§2.6 受击链登记：溢出转HP在HP扣减前
+  {
+    id: 'aegis_overdrive',
+    name: '超载神盾',
+    icon: '💠',
+    desc: '护盾恢复加速，满级溢出转HP',
+    category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'rare',
+    maxLevel: 3,
+    effectText: (lv) => lv >= 3
+      ? '护盾满层时新护盾转+1临时HP(上限+2)'
+      : `护盾恢复CD-${15 * lv}%`
+  },
+  // R3 猎手标记：导弹弹头端；连锁爆炸击杀不再触发二次连锁（防指数回路硬规则）
+  {
+    id: 'hunter_mark',
+    name: '猎手标记',
+    icon: '🎯',
+    desc: '导弹加伤+击杀连锁爆炸',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 2,
+    effectText: (lv) => `导弹伤害+${lv}，击杀连锁爆炸${50 + 10 * lv}px`
+  },
+  // R4 回响之翼：稳定过管兑换生存资源；羽盾上限1层（铁羽可+1，全局硬顶2层）；受击链最前置
+  {
+    id: 'echo_wing',
+    name: '回响之翼',
+    icon: '🪶',
+    desc: '过管积攒羽盾',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 3,
+    effectText: (lv) => `每过${9 - 2 * (lv - 1)}管存1层羽盾(挡1次伤)`
+  },
+  // R5 风暴之眼：天气并发奖励卡；单天气零收益（与经验潮汐错位），240s前基本白板——后期卡
+  {
+    id: 'eye_of_storm',
+    name: '风暴之眼',
+    icon: '🌀',
+    desc: '多重天气时增益（后期卡）',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 2,
+    effectText: (lv) => `天气并发≥2种时：debuff-${20 * lv}%，经验×${1 + 0.5 * lv}`
+  },
+  // R6 蜂群链路：导弹节奏卡；叠层上限 1+lv 硬封顶（防指数回路）；与屠龙者加算（v1.5.0）
+  {
+    id: 'missile_link',
+    name: '蜂群链路',
+    icon: '🐝',
+    desc: '导弹命中后下一发加伤',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 2,
+    effectText: (lv) => `导弹命中后1.5s内下一枚伤害+1（可叠${1 + lv}层）`
+  },
+  // R7 铁羽：回响之翼专属放大器；无回响之翼时不生效（选牌 UI 灰显）；组合上限2层为全局硬顶
+  {
+    id: 'iron_feather',
+    name: '铁羽',
+    icon: '🪶',
+    desc: '羽盾上限+1，破盾给无敌（需回响之翼）',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 2,
+    effectText: (lv) => `羽盾上限+1，羽盾破裂时${30 * lv}帧无敌`
+  },
+  // R8 先知：纯信息卡零数值；标签表在 GameConfig.ABILITY.ORACLE_*（必须与代码结算一致）；只标注不推荐
+  {
+    id: 'oracle',
+    name: '先知',
+    icon: '🔮',
+    desc: '升级面板标注协同度',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 1,
+    effectText: (lv) => '升级面板标注每张卡与当前构筑的协同度'
+  },
+
+  // ==================== [v1.4.0] 能力扩展包·批次2：epic ×6 ====================
+  // E1 导弹风暴：导弹系史诗顶点；期间再拾取刷新时长（不叠加）；同屏 MAX_ALIVE 硬刹车
+  {
+    id: 'missile_storm',
+    name: '导弹风暴',
+    icon: '🌪️',
+    desc: '拾取导弹变连发',
+    category: ABILITY.CATEGORY.ACTIVE,
+    rarity: 'epic',
+    maxLevel: 2,
+    effectText: (lv) => `拾取导弹变${4 + lv}s连发(每秒2枚)`
+  },
+  // E2 风暴驯化：天气流史诗顶点；驯化对象按获得时天气决定（无天气则下一种），不给挑；
+  // 驯化后对应天气卡作废——抽卡 UI 加"已驯化"互斥标记（D7）
+  {
+    id: 'chaos_dice',
+    name: '风暴驯化',
+    icon: '🌈',
+    desc: '驯化一种天气变成资产',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 1,
+    effectText: (lv) => '获得时驯化当前天气：风变助推/雨变轻盈/冰雹掉exp不伤人'
+  },
+  // E3 血契：自残高收益卡；持血契时狂暴增益减半（写死保险丝）；凤凰复活=回满当前上限
+  {
+    id: 'blood_pact',
+    name: '血契',
+    icon: '🩸',
+    desc: '最大HP-1换高额增益',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 2,
+    effectText: (lv) => `最大HP-1，得分/经验+${30 * lv}%，受击无敌+${lv}s`
+  },
+  // E4 幻影舞步：擦边流史诗顶点；窗内擦边只刷新窗口、不叠加倍率（防指数回路）；窗口期金色残影
+  {
+    id: 'phantom_edge',
+    name: '幻影舞步',
+    icon: '✨',
+    desc: '擦边开黄金连段窗',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 2,
+    effectText: (lv) => `擦边后90帧内：下次擦边窗口×2、经验×${2 + lv}`
+  },
+  // E5 顿悟：经验流史诗顶点；每局限3次硬刹车；双面板连弹由既有 B2 保护覆盖（关板45帧无敌）
+  {
+    id: 'enlightenment',
+    name: '顿悟',
+    icon: '💡',
+    desc: '憋经验一次升2级',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 1,
+    effectText: (lv) => '经验达升级所需200%时一次升2级（每局限3次）'
+  },
+  // E6 时之晶：寄生时间扭曲同一触发点（同CD同源，不独立计时，规避N4遮蔽）；
+  // 未持时间扭曲时无效，选牌 UI 灰显（先知会标🔗）
+  {
+    id: 'time_crystal',
+    name: '时之晶',
+    icon: '⏳',
+    desc: '时间扭曲时冻结怪物（需时间扭曲）',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 2,
+    effectText: (lv) => `时间扭曲触发时：怪物/弹幕冻结${1 + 0.5 * (lv - 1)}s（鸟可动）`
   }
 ]
 
