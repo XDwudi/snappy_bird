@@ -35,6 +35,12 @@
  *           旧卡质变：连击之心Lv3(无敌期过管+5exp)/缩小射线Lv5(间隙封顶+擦边窗口+10)/幸运光环Lv3(面板必含稀有+)。
  * [v1.5.0] 重构：生成决策（管道/道具/怪物的时机、位置、类型roll、保底计时）拆出至 systems/SpawnSystem.js，
  *           本类只保留"把生成结果放进数组"的接线（onSpawn* 回调）；行为逐帧等价，随机数消耗顺序不变。
+ * [v1.5.0] 步骤B：章节系统核心（systems/ChapterSystem.js）——章内过管计数（40管/150s兜底触发点占位：
+ *           记日志+浮动文字"Boss 逼近！"，Boss 本体步骤 C 接入）、转场演出（白闪→色带擦除→标题卡→60帧无敌，
+ *           冻结语义同 UPGRADING）、§4.4 难度修正叠加（_getScrollSpeed/_getGapSize 注入点+SpawnSystem 生成参数，
+ *           Ch1 全零修正零变化）、§4.2 章节视觉（背景/地面按 CHAPTERS 参数，Ch2 沙漠几何体元素，
+ *           存量管道换色 30 帧 lerp）、HUD 章节进度（"Ch1 · 12/40"，≥35/40 脉冲）；
+ *           精英怪（§5.1：金边/体型×1.3/HP×3/经验×5/必掉道具导弹权重×2，生成 roll 在 SpawnSystem）。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -47,6 +53,7 @@ const ExpSystem = require('../systems/ExpSystem.js')
 const AbilitySystem = require('../systems/AbilitySystem.js')
 const WeatherSystem = require('../systems/WeatherSystem.js')
 const SpawnSystem = require('../systems/SpawnSystem.js')   // [v1.5.0] 生成系统（管道/道具/怪物）
+const ChapterSystem = require('../systems/ChapterSystem.js') // [v1.5.0] 章节系统（进度/转场/难度修正/视觉参数）
 const Logger = require('../systems/GameLogger.js')
 
 class Game {
@@ -104,9 +111,31 @@ class Game {
       getOwnedLevel: function (id) { return self.abilitySystem.owned.get(id) || 0 },
       getPipes: function () { return self.pipes },
       getMonsterCount: function () { return self.monsters.length },
-      onSpawnPipe: function (pipe) { self.pipes.push(pipe) },
+      onSpawnPipe: function (pipe) {
+        // [v1.5.0] 章节换色（§4.2）：新管直接给当前章色（Ch1 返回 null=默认色，零变化）
+        const cs = self.chapterSystem ? self.chapterSystem.getPipeColorSet() : null
+        if (cs) pipe.setColorSet(cs)
+        self.pipes.push(pipe)
+      },
       onSpawnMonster: function (monster) { self.monsters.push(monster) },
       onSpawnItem: function (item) { self.items.push(item) }
+    })
+
+    // [v1.5.0] 章节系统（步骤 B：进度计数/转场演出/难度修正注入/视觉参数出口；
+    // Boss 本体步骤 C 接入，startBossFight/endBossFight 为占位接口）。
+    // 依赖全部经回调注入，ChapterSystem 不反查 Game 内部状态；默认 Ch1 全零修正、零随机消耗。
+    this.chapterSystem = new ChapterSystem({
+      screenW: this.screenW,
+      screenH: this.screenH,
+      getGameTime: function () { return self.gameTime },
+      addFloatingText: function (x, y, text, color, life) { self._addFloatingText(x, y, text, color, life) },
+      setSpawnMods: function (mods) { self.spawnSystem.setChapterModifiers(mods) },
+      setBossActive: function (active) { self.spawnSystem.setBossActive(active) },
+      grantInvincible: function (frames) {
+        // §4.3 转场收尾：60 帧无敌恢复飞行（语义同 B2-② 恢复保护）
+        self.abilitySystem.invincibleFrames = Math.max(self.abilitySystem.invincibleFrames, frames)
+        self.bird.invincibleBlink = Math.max(self.bird.invincibleBlink, 30)
+      }
     })
 
     // 计时器
@@ -218,6 +247,7 @@ class Game {
     this.expSystem.reset()
     this.abilitySystem.reset()
     this.weatherSystem.reset()    // [v1.2.0] 环境系统重置
+    this.chapterSystem.reset()    // [v1.5.0] 章节系统重置（回 Ch1，生成修正清零）
 
     const birdX = this.screenW * Config.BIRD.X_RATIO
     const birdY = this.screenH * 0.45
@@ -277,6 +307,7 @@ class Game {
     this.expSystem.reset()
     this.abilitySystem.reset()
     this.weatherSystem.reset()    // [v1.2.0] 环境系统重置
+    this.chapterSystem.reset()    // [v1.5.0] 章节系统重置（回 Ch1）
 
     const birdX = this.screenW * Config.BIRD.X_RATIO
     const birdY = this.screenH * 0.45
@@ -437,6 +468,14 @@ class Game {
     if (this.state === Config.GAME.STATE.GAME_OVER) return
     if (this.state === Config.GAME.STATE.UPGRADING) return
 
+    // [v1.5.0] 章节转场（§4.3）：UPGRADING 同款暂停语义——世界冻结
+    // （gameTime/实体/生成/碰撞全停），只推进转场计时与存量管道换色 lerp
+    if (this.chapterSystem.isTransitioning()) {
+      this.chapterSystem.updateTransition()
+      this._applyChapterPipeColors()  // 换色 lerp 在冻结期照常推进（30 帧播完）
+      return
+    }
+
     this._updateClouds()
     this.groundOffset = (this.groundOffset + Config.GAME.SCROLL_SPEED) % Config.GROUND.SCROLL_TILE
 
@@ -506,6 +545,10 @@ class Game {
     // [v1.5.0] 生成决策统一入口：管道（距离制）→ 怪物（45s保护+距离节奏）→ 随机道具计时 → 补给线保底。
     // 调用顺序与原四处散点完全一致，随机数消耗顺序不变；实体经 onSpawn* 回调回到 Game 数组。
     this.spawnSystem.update(scrollSpeed)
+
+    // [v1.5.0] 章节进度推进（章内计时/150s 兜底触发点）+ 存量管道换色 lerp（§4.3，30帧）
+    this.chapterSystem.update()
+    this._applyChapterPipeColors()
 
     // [v1.4.0] 经验银行生息：对齐天气 10s 检查节奏（WEATHER.CHECK_INTERVAL），不新增逐帧计时器
     if (this.expSystem.bankEnabled && this.gameTime % Config.WEATHER.CHECK_INTERVAL === 0) {
@@ -655,6 +698,17 @@ class Game {
     } else {
       this._upgradeDelayFrames = 0  // [v1.2.3] 无待处理升级时清零，防标志位泄漏
     }
+  }
+
+  /**
+   * [v1.5.0] 存量管道换色应用（§4.3）：lerp 中逐帧插值，到位后维持章节色。
+   * Ch1 默认路径 getPipeColorSet() 返回 null，不触碰任何管道，零变化。
+   * 正常 update 与转场冻结期都会调用（换色 lerp 在冻结期照常播完）。
+   */
+  _applyChapterPipeColors() {
+    const pipeColorSet = this.chapterSystem.getPipeColorSet()
+    if (!pipeColorSet) return
+    for (const p of this.pipes) p.setColorSet(pipeColorSet)
   }
 
   /**
@@ -956,6 +1010,9 @@ class Game {
     // [v1.2.0] 风力影响滚动速度
     speed += this._weatherWindScroll
 
+    // [v1.5.0] 章节难度修正（§4.4 叠加制）：滚动速度加算（Ch1=+0，加 0 精确无差）
+    speed += this.chapterSystem.getMods().scrollSpeedAdd
+
     return Math.max(0.5, speed)
   }
 
@@ -969,7 +1026,11 @@ class Game {
         (this.gameTime - Config.GAME.GAP_RAMP2_START) / Config.GAME.GAP_RAMP2_TIME, 1
       ) * Config.GAME.GAP_RAMP2_MAX
     }
-    return Math.max(base - reduction, Config.PIPE.MIN_GAP + stats.gapBonus * 0.5)
+    // [v1.5.0] 章节难度修正（§4.4 叠加制）：间隙加算（Ch1=+0，精确无差；Ch2=-10）
+    return Math.max(
+      base - reduction + this.chapterSystem.getMods().gapAdd,
+      Config.PIPE.MIN_GAP + stats.gapBonus * 0.5
+    )
   }
 
   // [v1.5.0] 管道生成（_spawnPipe）、怪物生成（_updateMonsterSpawn/_pickMonsterY）
@@ -1004,12 +1065,21 @@ class Game {
   /**
    * [v1.3.0] 怪物被击杀：爆炸粒子 + 击杀经验（浮动文字 +10）
    * [v1.4.0] 拾荒者：击杀怪物 20%/级 掉随机道具（权重沿用 TYPE_WEIGHTS）
+   * [v1.5.0] 精英怪（§5.1）：经验 ×5（10→50）+ 必掉 1 个随机道具（导弹权重×2，与拾荒者独立）
    */
   _onMonsterKilled(monster) {
     this._spawnExplosion(monster.x + monster.width / 2, monster.y, '255, 120, 40', 12)
     const stats = this.abilitySystem.getStats()
-    this._gainExp(Config.MONSTER.KILL_EXP, 'monster_kill', stats)
+    const isElite = !!monster.elite
+    const killExp = isElite ? Config.MONSTER.KILL_EXP * Config.MONSTER.ELITE_EXP_MULT : Config.MONSTER.KILL_EXP
+    this._gainExp(killExp, isElite ? 'elite_kill' : 'monster_kill', stats)
     this.monsterKills++  // [v1.4.0] §6.3 火力流击杀指标统计
+
+    // [v1.5.0] 精英必掉：怪物位置掉 1 个随机道具（导弹权重×2）+ 高价值目标提示
+    if (isElite) {
+      this.spawnSystem.spawnEliteDrop(monster.x + monster.width / 2, monster.y)
+      this._addFloatingText(monster.x + monster.width / 2, monster.y - 30, '精英击杀!', Config.MONSTER.ELITE_BORDER_COLOR, 55)
+    }
 
     // [v1.4.0] 拾荒者掉落（同屏怪物≤2 + 生成距离450px 天然限速，无需额外刹车）
     const scavLv = this.abilitySystem.owned.get('scavenger') || 0
@@ -1018,7 +1088,7 @@ class Game {
       Logger.info('Item', '拾荒者掉落道具', { lv: scavLv })
     }
 
-    Logger.info('Monster', '击杀怪物', { type: monster.monsterType, exp: Config.MONSTER.KILL_EXP })
+    Logger.info('Monster', '击杀怪物', { type: monster.monsterType, elite: isElite, exp: killExp })
   }
 
   // ==================== [v1.3.0] 导弹系统 ====================
@@ -1280,6 +1350,9 @@ class Game {
     // [v1.1.0] 管道计数
     this.pipesPassed++
     Logger.debug('Pipe', '通过管道', { pipesPassed: this.pipesPassed, score: this.score })
+
+    // [v1.5.0] 章节进度：章内过管计数（40 管触发 Boss 触发点，§4.5；不消耗随机数）
+    this.chapterSystem.onPipePassed()
 
     // [v1.1.4] 经验：只给通过管道经验（5→10），不再给经验球经验
     this._gainExp(Config.EXP.PIPE_PASS_EXP, 'pipe_pass', stats)
@@ -1866,6 +1939,7 @@ class Game {
 
     this._drawBackground()
     this._drawClouds()
+    this._drawChapterScenery()   // [v1.5.0] 章节背景元素（Ch2 沙漠：太阳/沙丘/热浪；Ch1 无新增，零变化）
 
     // [v1.1.0] 速度包边框特效
     if (this.abilitySystem.speedPackFrames > 0) {
@@ -1915,6 +1989,11 @@ class Game {
     // HUD（不受震动影响）
     this._drawHUD()
 
+    // [v1.5.0] 章节转场演出覆盖层（§4.3：白闪/色带擦除/标题卡，覆盖世界与 HUD）
+    if (this.chapterSystem.isTransitioning()) {
+      this._drawChapterTransition()
+    }
+
     // 状态覆盖层
     if (this.state === Config.GAME.STATE.READY) {
       this._drawReadyOverlay()
@@ -1927,15 +2006,18 @@ class Game {
 
   _drawBackground() {
     const ctx = this.ctx
-    const { VISUAL } = Config
+    // [v1.5.0] 天空渐变按章节参数（§4.2）；Ch1 色值原样录入 CHAPTERS，渲染零变化
+    const visual = this.chapterSystem.getVisual()
     const gradient = ctx.createLinearGradient(0, 0, 0, this.screenH)
-    gradient.addColorStop(0, VISUAL.SKY_TOP)
-    gradient.addColorStop(1, VISUAL.SKY_BOTTOM)
+    gradient.addColorStop(0, visual.skyTop)
+    gradient.addColorStop(1, visual.skyBottom)
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, this.screenW, this.screenH)
   }
 
   _drawClouds() {
+    // [v1.5.0] 章节背景元素开关：Ch2 沙漠无云（§4.2）；Ch1 clouds=true 零变化
+    if (!this.chapterSystem.getVisual().clouds) return
     const ctx = this.ctx
     ctx.fillStyle = Config.VISUAL.CLOUD_COLOR
     for (const cloud of this.clouds) {
@@ -1945,6 +2027,110 @@ class Game {
       ctx.arc(cloud.x + cloud.size * 0.7, cloud.y, cloud.size * 0.45, 0, Math.PI * 2)
       ctx.arc(cloud.x + cloud.size * 0.3, cloud.y + cloud.size * 0.15, cloud.size * 0.35, 0, Math.PI * 2)
       ctx.fill()
+    }
+  }
+
+  // [v1.5.0] 章节背景元素调度（§4.2 全部 Canvas 几何体 + 换色，零素材）
+  _drawChapterScenery() {
+    const visual = this.chapterSystem.getVisual()
+    if (visual.theme === 'desert') {
+      this._drawDesertScenery(visual)
+    }
+    // Ch1 meadow 无新增元素（云/天空/地面沿用原路径）；Ch3/Ch4 v1.6.0 占位不实现
+  }
+
+  /**
+   * [v1.5.0] Ch2 沙漠背景元素（§4.2）：右上太阳+radial光晕、远景沙丘3条抛物线弧（0.5×视差）、
+   * 热浪粒子（上升透明条，12 粒预算）。位置全部由 frameCount 推导，不消耗随机数。
+   */
+  _drawDesertScenery(visual) {
+    const ctx = this.ctx
+    const groundY = this.screenH - Config.GROUND.HEIGHT
+
+    // 太阳（右上 40px 圆 + radial 光晕）
+    const sunX = this.screenW - 70
+    const sunY = 90
+    const r = visual.sun.radius
+    const glow = ctx.createRadialGradient(sunX, sunY, r * 0.5, sunX, sunY, r * 2.2)
+    glow.addColorStop(0, 'rgba(255, 217, 59, 0.45)')
+    glow.addColorStop(1, 'rgba(255, 217, 59, 0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(sunX, sunY, r * 2.2, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = visual.sun.color
+    ctx.beginPath()
+    ctx.arc(sunX, sunY, r, 0, Math.PI * 2)
+    ctx.fill()
+
+    // 远景沙丘 3 条抛物线弧（0.5× 视差滚动，循环周期 = 屏宽 + 240px）
+    ctx.fillStyle = visual.duneColor
+    const cycle = this.screenW + 240
+    const scroll = (this.frameCount * 1.5) % cycle  // ≈0.5× 基准滚动速度
+    for (let i = 0; i < 3; i++) {
+      const peakY = groundY - 70 - i * 42
+      const cx = this.screenW + 120 - ((scroll + i * 220) % cycle)
+      ctx.beginPath()
+      ctx.moveTo(cx - 170, groundY)
+      ctx.quadraticCurveTo(cx, peakY, cx + 170, groundY)
+      ctx.fill()
+    }
+
+    // 热浪粒子（上升透明条；x/相位由粒号推导，y 随帧号上升，无随机源）
+    for (let i = 0; i < visual.heatParticles; i++) {
+      const px = (i * 97 + 31) % this.screenW
+      const span = groundY - 140
+      const py = groundY - 20 - ((this.frameCount * (0.6 + (i % 3) * 0.25) + i * 61) % span)
+      const alpha = 0.04 + 0.05 * (0.5 + 0.5 * Math.sin(this.frameCount * 0.05 + i))
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha.toFixed(3) + ')'
+      ctx.fillRect(px, py, 2, 14)
+    }
+  }
+
+  /**
+   * [v1.5.0] 章节转场演出（§4.3）：白闪10帧 → 色带擦除60帧（新章底色从左推入）
+   * → 标题卡90帧（"第二章 · 沙漠" + 副标）。转场期间世界冻结（update 只推进转场计时）。
+   */
+  _drawChapterTransition() {
+    const tr = this.chapterSystem.getTransitionRenderState()
+    if (!tr) return
+    const ctx = this.ctx
+    const T = Config.CHAPTERS.TRANSITION
+
+    if (tr.phase === 'flash') {
+      // 全屏白闪（渐隐）
+      const alpha = 1 - (tr.frame / T.FLASH_FRAMES) * 0.85
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha.toFixed(3) + ')'
+      ctx.fillRect(0, 0, this.screenW, this.screenH)
+    } else if (tr.phase === 'wipe') {
+      // 横向色带擦除：新章天空渐变从左推入
+      const w = this.screenW * (tr.frame / T.WIPE_FRAMES)
+      const gradient = ctx.createLinearGradient(0, 0, 0, this.screenH)
+      gradient.addColorStop(0, tr.toVisual.skyTop)
+      gradient.addColorStop(1, tr.toVisual.skyBottom)
+      ctx.fillStyle = gradient
+      ctx.fillRect(0, 0, w, this.screenH)
+    } else if (tr.phase === 'title') {
+      // 章节标题卡：横向色带 + 章节名大字 + 副标（淡入淡出各 15 帧）
+      const cx = this.screenW / 2
+      const cy = this.screenH * 0.4
+      const fade = Math.min(1, tr.frame / 15, (T.TITLE_FRAMES - tr.frame) / 15)
+      ctx.globalAlpha = Math.max(0, fade)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+      ctx.fillRect(0, cy - 60, this.screenW, 120)
+      ctx.font = 'bold 30px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.lineWidth = 4
+      ctx.strokeStyle = '#000000'
+      ctx.fillStyle = '#ffffff'
+      ctx.strokeText(tr.title, cx, cy - 10)
+      ctx.fillText(tr.title, cx, cy - 10)
+      ctx.font = 'bold 15px monospace'
+      ctx.fillStyle = '#ffd700'
+      ctx.strokeText(tr.subtitle, cx, cy + 28)
+      ctx.fillText(tr.subtitle, cx, cy + 28)
+      ctx.globalAlpha = 1.0
     }
   }
 
@@ -2183,20 +2369,22 @@ class Game {
   _drawGround() {
     const ctx = this.ctx
     const { GROUND, VISUAL } = Config
+    // [v1.5.0] 地面配色按章节参数（§4.2）；Ch1 色值原样录入 CHAPTERS，渲染零变化
+    const g = this.chapterSystem.getVisual().ground
     const groundY = this.screenH - GROUND.HEIGHT
 
-    ctx.fillStyle = VISUAL.GROUND_DIRT
+    ctx.fillStyle = g.base
     ctx.fillRect(0, groundY, this.screenW, GROUND.HEIGHT)
 
-    ctx.fillStyle = VISUAL.GROUND_GRASS
+    ctx.fillStyle = g.strip
     ctx.fillRect(0, groundY, this.screenW, 6)
 
-    ctx.fillStyle = VISUAL.GROUND_GRASS_DARK
+    ctx.fillStyle = g.tileA
     for (let x = -this.groundOffset; x < this.screenW; x += GROUND.SCROLL_TILE) {
       ctx.fillRect(x, groundY + 6, 12, 4)
     }
 
-    ctx.fillStyle = VISUAL.GROUND_DIRT_DARK
+    ctx.fillStyle = g.tileB
     for (let x = -this.groundOffset; x < this.screenW; x += GROUND.SCROLL_TILE) {
       ctx.fillRect(x + 6, groundY + 14, 8, 3)
     }
@@ -2275,7 +2463,24 @@ class Game {
       ctx.fillText(String(Math.floor(this.expSystem.bankBalance)), barX + barW + 24, barY + barH / 2)
     }
 
+    // ----- [v1.5.0] 章节进度（§4.5：经验条下方 "Ch1 · 12/40"，≥35/40 金色脉冲）-----
+    const chapterHud = this.chapterSystem.getHudData()
+    const chapterY = barY + barH + 12
+    ctx.font = 'bold 10px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    if (chapterHud.pulse) {
+      // Boss 临近：金色呼吸脉冲
+      ctx.globalAlpha = 0.55 + 0.45 * Math.sin(this.frameCount * 0.2)
+      ctx.fillStyle = '#ffd700'
+    } else {
+      ctx.fillStyle = '#ffffff'
+    }
+    ctx.fillText(`Ch${chapterHud.id} · ${chapterHud.pipes}/${chapterHud.target}`, this.screenW / 2, chapterY)
+    ctx.globalAlpha = 1.0
+
     // ----- 连击计数 -----
+    // [v1.5.0] 章节进度占经验条下方第一行，连击/天气/驯化行依次顺延
     const comboLv = this.abilitySystem.owned.get('combo_heart') || 0
     if (comboLv > 0 && this.abilitySystem.comboCount > 0) {
       const threshold = this.abilitySystem.getStat('comboThreshold')
@@ -2283,7 +2488,7 @@ class Game {
       ctx.fillStyle = '#ffaa00'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(`连击 ${this.abilitySystem.comboCount}/${threshold}`, this.screenW / 2, barY + barH + 12)
+      ctx.fillText(`连击 ${this.abilitySystem.comboCount}/${threshold}`, this.screenW / 2, barY + barH + 26)
     }
 
     // ----- [v1.2.0] 环境状态指示器 -----
@@ -2291,7 +2496,7 @@ class Game {
     if (weatherInfo.length > 0) {
       const icons = { wind: '💨', rain: '🌧️', hail: '🧊' }
       const colors = { wind: '#ffffff', rain: '#7eb8e0', hail: '#c0d8f0' }
-      const indicatorY = barY + barH + 26
+      const indicatorY = barY + barH + 40
       let iconX = this.screenW / 2 - (weatherInfo.length - 1) * 30
 
       for (const info of weatherInfo) {
@@ -2350,7 +2555,7 @@ class Game {
       const tamedIcons = { wind: '💨', rain: '🌧️', hail: '🧊' }
       const tamedX = this.screenW / 2
       const hasWeatherRow = weatherInfo.length > 0
-      const tamedY = hasWeatherRow ? barY + barH + 48 : barY + barH + 26
+      const tamedY = hasWeatherRow ? barY + barH + 62 : barY + barH + 40
       ctx.font = 'bold 10px monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
