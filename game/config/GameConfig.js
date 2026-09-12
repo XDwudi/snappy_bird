@@ -219,6 +219,16 @@ module.exports = {
     BAT_WEIGHT: 0.5,       // 蝙蝠怪生成权重（其余为浮游怪）
     KILL_EXP: 10,          // 击杀经验（浮动文字 +10）
 
+    // [v1.5.0] 精英怪（§5.1）：45s 保护期后每 60s roll 一次，25% 概率把下一只升级为精英
+    // 金色描边 + 体型×1.3 + HP×3，移动参数不变；击杀必掉 1 个随机道具（导弹权重×2）+ 经验×5
+    ELITE_ROLL_INTERVAL: 3600,     // 精英 roll 间隔（帧）=60s（计时起点与 SPAWN_DELAY 相同）
+    ELITE_CHANCE: 0.25,            // 精英化概率（Ch3 30%/Ch4 35% 由章节修正覆写，见 CHAPTERS）
+    ELITE_SIZE_MULT: 1.3,          // 体型倍率
+    ELITE_HP_MULT: 3,              // HP 倍率
+    ELITE_EXP_MULT: 5,             // 击杀经验倍率（10→50）
+    ELITE_MISSILE_WEIGHT_MULT: 2,  // 必掉道具的导弹权重倍率
+    ELITE_BORDER_COLOR: '#ffd700', // 金色描边
+
     // [v1.4.0] 拾荒者（scavenger）：击杀怪物 20%/级 掉随机道具
     // 同屏怪物≤2 + 生成距离450px 天然限速，无需额外刹车
     SCAVENGER_CHANCE_PER_LV: 0.2,
@@ -512,6 +522,82 @@ module.exports = {
       SPAWN_INTERVAL_PEAK: 20, // 峰值生成间隔(帧)
       DURATION_RAMP_TIME: 7200
     }
+  },
+
+  // ==================== [v1.5.0] 章节系统 ====================
+  // 设计依据：docs/开发方案_v1.4.0.md §4.1-4.5；视觉色值（§4.2）与难度修正（§4.4）同表管理。
+  // 难度为叠加制：现有时间 ramp（60s 拉满 + 60→180s 二段坡）完全不变、跨章连续不重置，
+  // 章节修正作为第三段压力曲线叠加其上（Ch1 全零 = 基准，默认体验零变化）。
+  // Ch3 夜空 / Ch4 雪原为 v1.6.0 占位（见 LIST 末尾注释），本版本不实现。
+  CHAPTERS: {
+    TRIGGER_PIPES: 40,        // §4.5 章内过管数触发 Boss（章内计数，过章清零）
+    TRIGGER_TIMEOUT: 9000,    // §4.5 迟到兜底（帧）=150s，未达 40 管强制触发
+    HUD_PULSE_PIPES: 35,      // §4.5 Boss 临近（≥35/40）章节进度脉冲阈值
+
+    // §4.3 转场演出帧数：白闪10 → 横向色带擦除60 → 标题卡90 →（恢复飞行后）60帧无敌
+    TRANSITION: {
+      FLASH_FRAMES: 10,       // 全屏白闪
+      WIPE_FRAMES: 60,        // 新章底色色带从左推入
+      TITLE_FRAMES: 90,       // 章节标题卡（"第二章 · 沙漠" + 副标"难度提升"）
+      INVINCIBLE_FRAMES: 60   // 转场结束后无敌帧（恢复飞行保护）
+    },
+    PIPE_COLOR_LERP_FRAMES: 30,  // §4.3 存量管道换色平滑过渡帧数
+
+    LIST: [
+      {
+        id: 1, name: '蓝天草地', title: '第一章 · 蓝天草地', subtitle: '',
+        // §4.4 难度修正（Ch1 全零 = 基准）
+        mods: {
+          scrollSpeedAdd: 0,         // 滚动速度加算
+          gapAdd: 0,                 // 管道间隙加算(px)
+          monsterSpawnDistance: 450, // 怪物生成距离(px)
+          monsterMaxAlive: 2,        // 同屏怪物上限
+          monsterHpMult: 1,          // 怪物 HP 倍率
+          floaterTrackSpeed: 1.1,    // 浮游追踪速度(px/帧)
+          batSineAmp: 55,            // 蝙蝠正弦振幅(px)
+          eliteChance: 0.25,         // §5.1 精英怪概率
+          bossHp: 30                 // §4.6 关底 Boss HP（步骤 C 使用）
+        },
+        // §4.2 视觉（Ch1 = 现有 VISUAL 段色值原样录入，渲染零变化）
+        visual: {
+          theme: 'meadow',
+          skyTop: '#4ec0ca', skyBottom: '#71c5cf',
+          clouds: true,              // 白云 ×4（沿用现有 _drawClouds）
+          ground: { base: '#ded895', strip: '#5ee270', tileA: '#8ed24e', tileB: '#c9c179' },
+          pipe: { body: '#73bf2e', highlight: '#9adf4e', shadow: '#558022' }
+        }
+      },
+      {
+        id: 2, name: '沙漠', title: '第二章 · 沙漠', subtitle: '难度提升',
+        // §4.4 Ch2：速度+0.3 / 间隙-10 / 怪物距离400 / 上限2 / HP×1 / 追踪1.3 / 振幅55 / 精英25%
+        mods: {
+          scrollSpeedAdd: 0.3,
+          gapAdd: -10,
+          monsterSpawnDistance: 400,
+          monsterMaxAlive: 2,
+          monsterHpMult: 1,
+          floaterTrackSpeed: 1.3,
+          batSineAmp: 55,
+          eliteChance: 0.25,
+          bossHp: 45                 // 沙暴巨鹰（步骤 C 使用）
+        },
+        // §4.2 Ch2 沙漠：橙黄天空 + 太阳 + 远景沙丘 + 热浪粒子 + 沙色地面 + 岩柱管道
+        visual: {
+          theme: 'desert',
+          skyTop: '#f5c06a', skyBottom: '#f7dfa0',
+          clouds: false,                     // 沙漠章无云
+          sun: { color: '#ffd93b', radius: 40 },  // 右上 40px 太阳 + radial 光晕
+          duneColor: '#e0aa5e',              // 远景沙丘 3 条抛物线弧（0.5× 视差）
+          heatParticles: 12,                 // 热浪粒子（上升透明条），性能预算 +12
+          ground: { base: '#e6c27a', strip: '#d4a955', tileA: '#d4a955', tileB: '#d4a955' }, // 沙色+沙纹线
+          pipe: { body: '#c98f3f', highlight: '#a8742c', shadow: '#a8742c' }  // 岩柱
+        }
+      }
+      // [v1.6.0 占位·不实现] Ch3 夜空：天空 #141c33→#2a3a5f，星星×30+弯月+云#3a4a6b+萤火虫；
+      //   地面 #33415c；金属管 #6b7fa3；修正 速度+0.3/间隙-8/怪物距离360/上限3/HP×1.5/追踪1.4/振幅70/精英30%/Boss HP60
+      // [v1.6.0 占位·不实现] Ch4 雪原：天空 #b9d4ea→#e8f2fa，雪山×2+雪花粒子(≤40,复用冰雹实体,无伤害)；
+      //   地面 #eef4f8+冰面高光；冰柱 #8fc1e0；修正 速度+0.3/间隙-7/怪物距离320/上限3/HP×2/追踪1.5/振幅70/精英35%/Boss HP80
+    ]
   },
 
   // ==================== 云朵参数 ====================
