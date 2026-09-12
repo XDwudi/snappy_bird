@@ -421,7 +421,30 @@ module.exports = {
     ARCHETYPE_CORE_BOOST_MAX_OWNED: 2,  // 持有核心数 < 此值时加权生效
 
     // [v1.2.2] N9 软保底：连续5次升级面板无稀有及以上卡时，下一面板保底1张稀有+
-    PITY_THRESHOLD: 5
+    PITY_THRESHOLD: 5,
+
+    // ==================== [v1.5.0] 章节联动卡参数（§2.1-C7/§2.2-U8/U9/§2.3-R9/R10/§2.4-E7） ====================
+
+    // [v1.5.0] C7 坚韧外皮（thick_skin）：怪物/弹幕伤害 30%/级 概率格挡（对管道无效）；
+    // §2.6 受击链最前置防御节点（格挡 → 羽盾 → 护盾层 → HP），格挡成功白色弹开粒子（与护盾蓝色区分）
+    THICK_SKIN_BLOCK_PER_LV: 0.3,
+
+    // [v1.5.0] U8 屠龙者（boss_slayer）：导弹对 Boss 伤害 +lv（与猎手标记加算，非乘算防 DPS 爆炸）；
+    // Boss 战受击无敌 +0.5s/级（帧）
+    BOSS_SLAYER_INVINCIBLE_PER_LV: 30,
+
+    // [v1.5.0] U9 旅者（nomad）：进入新章节 +lv 层护盾 +20exp/级（第 2 章起生效，Ch1 零收益）
+    NOMAD_EXP_PER_LV: 20,
+
+    // [v1.5.0] R9 章节回响（chapter_echo）：进新章随机已持卡临时 +lv 级（本章有效）；
+    // 已满级则重随机，最多重试 3 次；章末恢复并浮动文字"回响消散"
+    ECHO_REROLL_MAX: 3,
+
+    // [v1.5.0] R10 战利品陈列（trophy_wall）：每个已击败 Boss 经验 +15%/级、道具率 +5pp/级
+    // （本局永久，按已击败数线性叠乘，4 章封顶 4 层；第一章未过 Boss 前零收益）
+    TROPHY_EXP_PER_LV: 0.15,
+    TROPHY_ITEM_PP_PER_LV: 0.05,
+    TROPHY_MAX_STACKS: 4
   },
 
   // ==================== [v1.2.2] 升级面板保护（B2） ====================
@@ -597,6 +620,79 @@ module.exports = {
       //   地面 #33415c；金属管 #6b7fa3；修正 速度+0.3/间隙-8/怪物距离360/上限3/HP×1.5/追踪1.4/振幅70/精英30%/Boss HP60
       // [v1.6.0 占位·不实现] Ch4 雪原：天空 #b9d4ea→#e8f2fa，雪山×2+雪花粒子(≤40,复用冰雹实体,无伤害)；
       //   地面 #eef4f8+冰面高光；冰柱 #8fc1e0；修正 速度+0.3/间隙-7/怪物距离320/上限3/HP×2/追踪1.5/振幅70/精英35%/Boss HP80
+    ]
+  },
+
+  // ==================== [v1.5.0] Boss 系统（步骤 C） ====================
+  // 设计依据：docs/开发方案_v1.4.0.md §4.6-4.11；同框架变体制（§4.6 结论），
+  // 变体数值全部入 VARIANTS 表（HP 单一事实源在 CHAPTERS.mods.bossHp，变体行只写行为参数）。
+  BOSS: {
+    WIDTH: 90,                  // Boss 视觉宽度（碰撞箱为视觉 0.8）
+    HEIGHT: 64,                 // Boss 视觉高度
+    HOME_X_RATIO: 0.70,         // §4.8 巡游 x = 屏宽 70%
+    ROAM_AMP: 120,              // §4.8 正弦巡游 y 振幅(px)
+    ROAM_PERIOD: 240,           // 巡游周期（帧）=4s
+    PHASE2_HP_RATIO: 0.5,       // §4.8 P1→P2 阈值（HP<50%）：爆闪30帧+血条变红+弹幕加密
+    FAN_ANGLE_STEP: 0.35,       // §4.8 扇形弹幕间隔角(rad)
+    FEATHER_RADIUS: 5,          // 羽刃弹幕半径(px)
+    FEATHER_DAMAGE: 1,          // 弹幕伤害（固定 1，走统一受击链）
+    CHARGE_BACK_PX: 30,         // §4.8 冲锋蓄力后退(px)
+    CHARGE_WINDUP_FRAMES: 48,   // 蓄力 0.8s（泛白预警+红色警示带；=二段跳窗口×2.5 反应余量）
+    CHARGE_SPEED: 8,            // 冲刺速度(px/帧)
+    CHARGE_TARGET_X_RATIO: 0.15,// 冲至屏 15% 处返回
+    CONTACT_DAMAGE: 1,          // 本体接触伤害（走统一受击链）
+    // §4.11 出场演出：暗角收拢30帧 → "雷云聚集……"1s → Boss 右侧飞入至70%（60帧）→ 血条展开
+    INTRO_VIGNETTE_FRAMES: 30,
+    INTRO_GATHER_FRAMES: 60,
+    INTRO_ENTER_FRAMES: 60,
+    // §4.11 死亡演出：爆炸粒子环（半径120px）→ 慢动作30帧（复用速度包0.5×）→ 大礼包面板
+    DEATH_SLOWMO_FRAMES: 30,
+    EXPLOSION_RING_RADIUS: 120,
+    // §4.10 战败方案A（D1/D19）：HP 归零不结束游戏，扣 1 HP 走完整受击链（可被格挡/羽盾/护盾减免），
+    // Boss 长鸣离场、章内进度保留、再过 20 管 Boss 满血回归一次；二战失败本章 Boss 不再出现、
+    // 章节正常推进无奖励。血契流 maxHp=1 战败=死（无血可扣，自选极限属性）
+    DEFEAT_RETURN_PIPES: 20,
+    DEFEAT_INVINCIBLE_FRAMES: 120,  // 战败恢复飞行保护（2s）
+    // §4.11 Boss 血条：顶部居中、宽60%、高10px；左 Boss 名右 HP 数字；P2 变红
+    HP_BAR_WIDTH_RATIO: 0.6,
+    HP_BAR_HEIGHT: 10,
+    // §4.7 Boss 战期间道具照常生成且导弹权重上调 20/125→40/145（= missile×2，无火力卡玩家的保底输出）
+    ITEM_MISSILE_WEIGHT_MULT: 2,
+    // §4.10 章节大礼包定额：+100 分 + 3 级所需经验（按当前等级曲线 18+12×Lv 逐级别累加）
+    GIFT_SCORE: 100,
+    GIFT_LEVELS: 3,
+    // 章节祝福（§4.10 三选一，本局永久）；E7 章节之主对祝福效果 +50% 走 BLESSING_MASTER_MULT
+    BLESSING_MASTER_MULT: 1.5,
+    BLESSING_GROWTH_EXP: 0.25,      // 成长祝福：经验 +25%/层（独立乘区）
+    BLESSING_HUNT_ITEM_PP: 0.08,    // 狩猎祝福：道具生成率 +8pp/层
+    BLESSING_HUNT_SPAWN_ITEMS: 3,   // 狩猎祝福：立即在前方生成道具数
+    // §4.6 变体表：p1/p2 = 弹幕参数（volley=每轮发数 / volleyInterval=间隔帧 / bulletSpeed=弹速 px/f）
+    VARIANTS: [
+      { // Ch1 雷羽巨鹰（基准框架）：3发/4s → 5发/2.5s，弹速 4.5→5.5；冲锋 CD12s；召唤蝙蝠×2/15s
+        name: '雷羽巨鹰',
+        gatherText: '雷云聚集……',
+        p1: { volley: 3, volleyInterval: 240, bulletSpeed: 4.5 },
+        p2: { volley: 5, volleyInterval: 150, bulletSpeed: 5.5 },
+        chargeCD: 720,
+        summon: { type: 'bat', count: 2, interval: 900 },
+        colors: { body: '#5b6b8c', wing: '#42506e', belly: '#c8d2e8', beak: '#f5b83d', eye: '#ffe066', outline: '#1c2333' },
+        bulletColor: '#aee6ff',     // 羽刃=闪电蓝
+        trailColor: null            // 无尾迹
+      },
+      { // Ch2 沙暴巨鹰：4发/3.5s → 6发/2.2s，弹速 5.0→6.0；冲锋 CD10s；召唤浮游×1/15s（追踪压力替代数量）；
+        // 配色 #c98f3f + 沙粒尾迹；弹幕视觉为沙锥
+        name: '沙暴巨鹰',
+        gatherText: '沙暴逼近……',
+        p1: { volley: 4, volleyInterval: 210, bulletSpeed: 5.0 },
+        p2: { volley: 6, volleyInterval: 132, bulletSpeed: 6.0 },
+        chargeCD: 600,
+        summon: { type: 'floater', count: 1, interval: 900 },
+        colors: { body: '#c98f3f', wing: '#a8742c', belly: '#e8c98a', beak: '#8a5a1e', eye: '#fff3d6', outline: '#5e3f14' },
+        bulletColor: '#e0aa5e',     // 沙锥
+        trailColor: '224, 170, 94'  // 沙粒尾迹
+      }
+      // [v1.6.0 占位] Ch3 暗夜巨鹰 HP60（+每轮1发弱追踪弹，复用 Missile.TURN_RATE）；
+      // Ch4 霜羽巨鹰 HP80（弹幕过中线分裂为2，冲锋 CD8s，召唤 浮游×1+蝙蝠×1）
     ]
   },
 

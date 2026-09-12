@@ -1,7 +1,8 @@
 /**
  * AbilityConfig.js - 能力数据配置 [v1.4.0]
  *
- * 共55个能力：28(旧) + 27([v1.4.0]：批次1 common×6+uncommon×7，批次2 rare×8+epic×6)
+ * 共61个能力：28(旧) + 27([v1.4.0]：批次1 common×6+uncommon×7，批次2 rare×8+epic×6)
+ *             + 6([v1.5.0] 章节联动卡：common×1+uncommon×2+rare×2+epic×1)
  * v1.1.0变更：提升15个旧能力等级上限 + 新增7个能力
  * v1.1.3变更：为每个能力添加稀有度(rarity)
  * v1.2.0变更：新增6个环境相关能力
@@ -645,6 +646,78 @@ const Abilities = [
     rarity: 'epic',
     maxLevel: 2,
     effectText: (lv) => `时间扭曲触发时：怪物/弹幕冻结${1 + 0.5 * (lv - 1)}s（鸟可动）`
+  },
+
+  // ==================== [v1.5.0] 章节联动卡 ×6（§2.1-C7/§2.2-U8/U9/§2.3-R9/R10/§2.4-E7，池 55→61） ====================
+
+  // C7 坚韧外皮：Boss 时代 common 对策卡；格挡先于护盾结算（§2.6 受击链最前置），
+  // 对管道无效写进 desc；格挡成功白色弹开粒子（与护盾蓝色区分）
+  {
+    id: 'thick_skin',
+    name: '坚韧外皮',
+    icon: '🦬',
+    desc: '概率格挡怪物/弹幕伤害（对管道无效）',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'common',
+    maxLevel: 2,
+    effectText: (lv) => `怪物/弹幕伤害${30 * lv}%概率格挡（对管道无效）`
+  },
+  // U8 屠龙者：Boss 战专精卡；与猎手标记加算（非乘算）；平时零收益写明"对Boss生效"
+  {
+    id: 'boss_slayer',
+    name: '屠龙者',
+    icon: '🗡️',
+    desc: 'Boss战专精（对普通怪物无效）',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 2,
+    effectText: (lv) => `导弹对Boss伤害+${lv}，Boss战受击无敌+${0.5 * lv}s`
+  },
+  // U9 旅者：章节"进站补给"；只在换章瞬间生效，第 2 章起生效（Ch1 零收益写明）
+  {
+    id: 'nomad',
+    name: '旅者',
+    icon: '🎒',
+    desc: '进入新章节获得补给（第2章起生效）',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'uncommon',
+    maxLevel: 2,
+    effectText: (lv) => `进入新章节：+${lv}层护盾、+${20 * lv}exp`
+  },
+  // R9 章节回响：每章开局一次"哪张卡被回响"的小惊喜；临时等级不超 maxLevel
+  // （满级重随机≤3次）；本章结束浮动文字"回响消散"（非永久获得）
+  {
+    id: 'chapter_echo',
+    name: '章节回响',
+    icon: '📯',
+    desc: '进新章随机已持卡临时升级（本章有效）',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 2,
+    effectText: (lv) => `进入新章节：随机1张已持卡临时+${lv}级（本章有效）`
+  },
+  // R10 战利品陈列：Boss 击杀复利卡，按已击败数线性叠乘（4 章封顶 4 层）；
+  // 第一章未过 Boss 前零收益写明；与大礼包错位——礼包是定额，陈列是比率
+  {
+    id: 'trophy_wall',
+    name: '战利品陈列',
+    icon: '🏆',
+    desc: '每个已击败Boss提供永久增益（未击败前零收益）',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'rare',
+    maxLevel: 2,
+    effectText: (lv) => `每个已击败Boss：经验+${15 * lv}%、道具率+${5 * lv}pp（本局永久）`
+  },
+  // E7 章节之主：章节流派史诗顶点；"必含史诗"与 N9 软保底不叠加——消耗当次软保底计数
+  {
+    id: 'chapter_master',
+    name: '章节之主',
+    icon: '👑',
+    desc: '章节祝福增幅+面板史诗保底',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'epic',
+    maxLevel: 1,
+    effectText: (lv) => '章节祝福效果+50%；每章首次升级面板必含1张史诗'
   }
 ]
 
