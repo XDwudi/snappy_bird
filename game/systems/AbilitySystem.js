@@ -10,6 +10,9 @@
  * - 管理道具效果状态（速度包减速）
  * - 连击系统 / 经验共鸣 / 狂暴
  * - [v1.2.0] 风暴之子：环境效果期间全属性提升
+ * - [v1.4.0] 批次1新卡：求生本能(HP=1补盾) / 锐利目光(擦边缩碰撞箱) / 连击种子(断连保留)
+ *             镜面护盾(破盾冲击波事件) / 经验潮汐(天气期经验) / 羽舞(二段跳擦边窗口)
+ *             定风珠免疫时间戳字段(由 WeatherSystem 写入)
  */
 
 const Config = require('../config/GameConfig.js')
@@ -62,6 +65,13 @@ class AbilitySystem {
 
     // [v1.2.0] 环境状态（由WeatherSystem更新，供风暴之子计算）
     this.weatherActive = false
+
+    // [v1.4.0] 批次1新卡状态
+    this.survivorUsed = 0          // 求生本能：本局已触发次数（上限=等级）
+    this.edgeFocusFrames = 0       // 锐利目光：擦边后碰撞箱缩小剩余帧
+    this.featherDanceFrames = 0    // 羽舞：二段跳后擦边窗口扩大剩余帧
+    this.mirrorShockCD = 0         // 镜面护盾：冲击波CD（3s 内最多触发 1 次，硬刹车）
+    this.weatherImmuneUntil = 0    // 定风珠：天气 debuff 免疫截止帧（由 WeatherSystem 触发/结束事件写入）
 
     // [v1.2.2] N7 特效事件队列（由Game.js每帧取出并生成内联粒子特效）
     this.fxEvents = []
@@ -216,11 +226,23 @@ class AbilitySystem {
     // 灵巧: 碰撞箱 -12%/级
     s.collisionScale = Math.max(0.3, 1 - 0.12 * lv('agile'))
 
+    // [v1.4.0] 锐利目光: 擦边后60帧碰撞箱再 -15%/级（与灵巧乘算，下限钳制兜底；只改判定不改手感）
+    const edgeFocusLv = lv('edge_focus')
+    if (edgeFocusLv > 0 && this.edgeFocusFrames > 0) {
+      s.collisionScale = Math.max(0.3, s.collisionScale * (1 - Config.ABILITY.EDGE_FOCUS_SHRINK_PER_LV * edgeFocusLv))
+    }
+
     // 磁吸: 吸引范围 +50px/级
     s.orbAttractRange = Config.ORB.ATTRACT_RANGE + 50 * lv('magnet')
 
     // 贪婪: 经验获取 +25%/级
     s.expMultiplier = (1 + 0.25 * lv('greed')) * buffMul * berserkMul * stormMul
+
+    // [v1.4.0] 经验潮汐: 天气期间经验获取 +25%/级（只加经验不加战力，与风暴之子错位）
+    const expTideLv = lv('exp_tide')
+    if (this.weatherActive && expTideLv > 0) {
+      s.expMultiplier *= (1 + 0.25 * expTideLv)
+    }
 
     // 慢速世界: 障碍速度 -10%/级
     s.scrollSpeedMultiplier = Math.max(0.5, 1 - 0.10 * lv('slow_world'))
@@ -285,6 +307,11 @@ class AbilitySystem {
     if (this.iceCrystalCD > 0) this.iceCrystalCD--  // [v1.2.0] 冰晶护体CD
     if (this.invincibleFrames > 0) this.invincibleFrames--
     if (this.speedPackFrames > 0) this.speedPackFrames--
+
+    // [v1.4.0] 批次1新卡计时器
+    if (this.edgeFocusFrames > 0) this.edgeFocusFrames--       // 锐利目光
+    if (this.featherDanceFrames > 0) this.featherDanceFrames-- // 羽舞
+    if (this.mirrorShockCD > 0) this.mirrorShockCD--           // 镜面护盾冲击波CD
 
     // [v1.1.5] 护盾爆发——定期获得1层护盾
     if (this.hasStat('hasShieldBurst')) {
@@ -403,6 +430,19 @@ class AbilitySystem {
     this.resetCombo()
     Logger.warn('HP', '受到伤害', { hp: this.hp, maxHp: this.maxHp })
     this.invalidateStats()  // [v1.1.2] 修复：HP变化后刷新缓存，使狂暴立即生效
+
+    // [v1.4.0] 求生本能：HP 扣至 1 时补 1 层护盾（每局限 lv 次）
+    // §2.6 受击链位置：HP扣减 之后、凤凰复活 之前；走统一 addShieldLayer 上限钳制，不得溢出
+    if (this.hp === 1) {
+      const survivorLv = this.owned.get('survivor_instinct') || 0
+      if (survivorLv > 0 && this.survivorUsed < survivorLv) {
+        this.survivorUsed++
+        this.addShieldLayer(1)
+        this._emitFx('survivor')  // Game 侧浮动文字"求生本能!"
+        Logger.info('Ability', '求生本能触发', { used: this.survivorUsed, max: survivorLv, shieldLayers: this.shieldLayers })
+      }
+    }
+
     if (this.hp <= 0) {
       return true  // 死亡
     }
@@ -440,6 +480,16 @@ class AbilitySystem {
       this.shieldRecoverTimer = 0
       this.bounceShieldRecoverTimer = 0
       this.resetCombo()  // [v1.2.2] N1
+
+      // [v1.4.0] 镜面护盾：护盾层消耗（破盾）时触发冲击波事件，Game 侧结算 AoE
+      // 硬刹车：每 3s 最多触发 1 次（防"反复破盾刷波"回路）；冲击波对 Boss 无效（isBoss 分支）
+      const mirrorLv = this.owned.get('mirror_shield') || 0
+      if (mirrorLv > 0 && this.mirrorShockCD <= 0) {
+        this.mirrorShockCD = Config.SHIELD.MIRROR_SHOCK_CD
+        this._emitFx('mirror_shock')
+        Logger.info('Shield', '镜面护盾冲击波触发', { radiusLv: mirrorLv, cd: this.mirrorShockCD })
+      }
+
       Logger.info('Shield', '护盾消耗', { remaining: this.shieldLayers, max: this.maxShieldLayers })
       return true
     }
@@ -477,7 +527,19 @@ class AbilitySystem {
   }
 
   resetCombo() {
-    this.comboCount = 0
+    // [v1.4.0] 连击种子：断连击时保留 lv 层
+    // 硬刹车（N1 教训）：保留层数 ≤ 连击之心当前无敌阈值-1，否则保留3层+阈值2=变相永动；
+    // 未持连击之心时保留上限 COMBO_SEED_NO_HEART_CAP(4)
+    const seedLv = this.owned.get('combo_seed') || 0
+    if (seedLv <= 0) {
+      this.comboCount = 0
+      return
+    }
+    const heartLv = this.owned.get('combo_heart') || 0
+    const cap = heartLv > 0
+      ? Math.max(0, Math.max(2, 5 - heartLv) - 1)
+      : Config.ABILITY.COMBO_SEED_NO_HEART_CAP
+    this.comboCount = Math.min(this.comboCount, Math.min(seedLv, cap))
   }
 
   // ==================== 主动技能触发 ====================
