@@ -3393,17 +3393,18 @@ class Game {
 
   /**
    * [v1.4.0] 选牌灰显：缺前置卡的能力灰显提示（仍可点选，只是无效——保住构筑主权）
+   * [v1.5.1] 改读 Config.ABILITY.PREREQUISITES 单一事实源（原硬编码两卡）；
+   *           依赖卡前置未持有时已不进抽卡池（AbilityRegistry 统一过滤），
+   *           本灰显仅作兜底（如未来新增直发面板旁路抽卡池的路径），正常路径不再触达。
    * 铁羽需回响之翼（无则羽盾来源不存在）；时之晶需时间扭曲（寄生同一触发点，无则无触发位）
    * @returns {string|null} 灰显原因
    */
   _getCardGreyReason(id) {
-    if (id === 'iron_feather' && !(this.abilitySystem.owned.get('echo_wing') > 0)) {
-      return '需回响之翼'
-    }
-    if (id === 'time_crystal' && !(this.abilitySystem.owned.get('time_warp') > 0)) {
-      return '需时间扭曲'
-    }
-    return null
+    const prereq = Config.ABILITY.PREREQUISITES[id]
+    if (!prereq) return null
+    if (this.abilitySystem.owned.get(prereq) > 0) return null
+    const def = AbilityRegistry.get(prereq)
+    return '需' + (def ? def.name : prereq)
   }
 
   /**

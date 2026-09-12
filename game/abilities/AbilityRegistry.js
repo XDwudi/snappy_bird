@@ -99,7 +99,22 @@ class AbilityRegistry {
   }
 
   /**
+   * [v1.5.1] 前置依赖检查：依赖卡在 prerequisite 未持有时不进候选池
+   * （真机反馈②"前置卡白占格子"修复，原仅 UI 灰显可点无效）。
+   * 依赖表单一事实源：Config.ABILITY.PREREQUISITES。
+   * @param {Object} ability - 能力定义
+   * @param {Map} owned - 当前已拥有的能力 Map<id, level>
+   * @returns {boolean} true=无依赖或前置已持有
+   */
+  _meetsPrerequisite(ability, owned) {
+    const prereq = Config.ABILITY.PREREQUISITES[ability.id]
+    if (!prereq) return true
+    return (owned.get(prereq) || 0) > 0
+  }
+
+  /**
    * [v1.1.3] 稀有度加权随机抽取可选能力
+   * [v1.5.1] 前置未持有的依赖卡不进候选池（统一口径，见 _meetsPrerequisite）
    * @param {Map} owned - 当前已拥有的能力 Map<id, level>
    * @param {number} count - 抽取数量
    * @param {number} playerLevel - 玩家当前等级（影响稀有度权重）
@@ -114,6 +129,8 @@ class AbilityRegistry {
       const currentLevel = owned.get(ab.id) || 0
       // 已满级的能力不参与抽取
       if (currentLevel >= ab.maxLevel) continue
+      // [v1.5.1] 前置未持有：依赖卡不进池
+      if (!this._meetsPrerequisite(ab, owned)) continue
 
       const weight = this.getWeight(ab, currentLevel, playerLevel, coreBoost)
       candidates.push({ ability: ab, weight })
@@ -207,6 +224,7 @@ class AbilityRegistry {
       if (excluded[ab.id]) continue
       const currentLevel = owned.get(ab.id) || 0
       if (currentLevel >= ab.maxLevel) continue
+      if (!this._meetsPrerequisite(ab, owned)) continue  // [v1.5.1] 前置未持有不进池
       pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel, coreBoost) })
     }
     if (pool.length === 0) return null
@@ -237,6 +255,7 @@ class AbilityRegistry {
       if (excluded[ab.id]) continue
       const currentLevel = owned.get(ab.id) || 0
       if (currentLevel >= ab.maxLevel) continue
+      if (!this._meetsPrerequisite(ab, owned)) continue  // [v1.5.1] 前置未持有不进池
       pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel, coreBoost) })
     }
     if (pool.length === 0) return null
@@ -268,6 +287,7 @@ class AbilityRegistry {
         if (pickedIds[ab.id]) continue
         const currentLevel = owned.get(ab.id) || 0
         if (currentLevel >= ab.maxLevel) continue
+        if (!this._meetsPrerequisite(ab, owned)) continue  // [v1.5.1] 前置未持有不进池
         pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel, coreBoost) })
       }
       if (pool.length === 0) return null
