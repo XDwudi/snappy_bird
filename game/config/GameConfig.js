@@ -26,11 +26,13 @@ module.exports = {
     WIDTH: 60,              // 管道宽度
     GAP: 180,               // 管道间隙基础值
     MIN_GAP: 120,           // 最小间隙
-    SPAWN_INTERVAL: 90,     // 生成间隔（帧），90帧≈1.5s
-    // [v1.2.2] N5 终局加压：120s起生成间隔线性收紧，至300s达下限75帧
+    // [v1.3.0] 生成改为距离制（修复减速 bug）：原 SPAWN_INTERVAL:90(帧) × SCROLL_SPEED:3.0 = 270px
+    // 旧配置 SPAWN_INTERVAL:90 / SPAWN_INTERVAL_MIN:75 已废弃删除，引用处全部清理
+    SPAWN_DISTANCE: 270,    // 生成间隔（滚动像素），等价原90帧×3.0速度
+    // [v1.2.2] N5 终局加压：120s起生成间隔线性收紧，至300s达下限 [v1.3.0] 同步改距离版 270→240px
     SPAWN_RAMP_START: 7200,   // 间隔收紧起点（帧）=120s
     SPAWN_RAMP_TIME: 10800,   // 收紧周期（帧），120s→300s
-    SPAWN_INTERVAL_MIN: 75,   // 生成间隔下限（帧）
+    SPAWN_DISTANCE_MIN: 240,  // 生成间隔下限（滚动像素），等价原75帧×3.0≈225，取240保持密度略缓
     CAP_HEIGHT: 26,         // 管道帽高度
     CAP_OVERHANG: 4,        // 帽突出宽度
     MIN_TOP: 50,            // 顶部管道最小高度
@@ -150,7 +152,8 @@ module.exports = {
       exp_pack: 40,        // 经验包
       health_pack: 20,     // 血包
       shield_pack: 25,     // 护盾包
-      speed_pack: 15       // 速度包
+      speed_pack: 15,      // 速度包
+      missile: 20          // [v1.3.0] 导弹（与血包同级）
     },
 
     // 道具效果参数
@@ -169,8 +172,50 @@ module.exports = {
       exp_pack: '#9b59b6',
       health_pack: '#e74c3c',
       shield_pack: '#3498db',
-      speed_pack: '#1abc9c'
+      speed_pack: '#1abc9c',
+      missile: '#e67e22'   // [v1.3.0] 导弹（橙色）
     }
+  },
+
+  // ==================== [v1.3.0] 怪物系统 ====================
+  MONSTER: {
+    SPAWN_DELAY: 2700,     // 新手保护期（帧），45s 后才出现怪物
+    MAX_ALIVE: 2,          // 屏幕同时最多怪物数
+    SPAWN_DISTANCE: 450,   // 生成间隔（滚动像素，与管道同为距离制）
+    SAFE_GAP_DIST: 70,     // 生成 y 与前方管道间隙中心的最小距离（不堵死通路）
+    SPAWN_Y_ATTEMPTS: 6,   // 生成 y 避让尝试次数（失败则用最后候选）
+    MIN_Y_MARGIN: 40,      // y 取值上下边距
+    BAT_WEIGHT: 0.5,       // 蝙蝠怪生成权重（其余为浮游怪）
+    KILL_EXP: 10,          // 击杀经验（浮动文字 +10）
+
+    // 蝙蝠怪：正弦垂直波动
+    BAT: {
+      HP: 1,
+      WIDTH: 30,
+      HEIGHT: 22,
+      SINE_AMP: 55,        // 正弦振幅（px）
+      SINE_FREQ: 0.045     // 正弦频率（rad/帧）
+    },
+
+    // 浮游怪：滞后追踪小鸟 y（追踪速度设上限，保证可躲避）
+    FLOATER: {
+      HP: 2,
+      WIDTH: 32,
+      HEIGHT: 26,
+      TRACK_SPEED: 1.1     // y 追踪速度上限（px/帧）
+    }
+  },
+
+  // ==================== [v1.3.0] 导弹系统 ====================
+  MISSILE: {
+    SPEED: 7,              // 基础飞行速度（px/帧，实际随世界快慢缩放）
+    TURN_RATE: 0.07,       // 弱追踪：每帧最大转向角（rad）
+    DAMAGE: 1,             // 命中伤害
+    AOE_RADIUS: 0,         // 爆炸 AoE 半径（px，0=无 AoE）
+    MAX_ALIVE: 3,          // 同时在屏导弹上限
+    WIDTH: 16,             // 弹头长度
+    HEIGHT: 8,             // 弹头宽度
+    TRAIL_LENGTH: 10       // 拖尾点数
   },
 
   // ==================== 经验球参数 ====================

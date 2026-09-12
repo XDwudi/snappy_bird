@@ -6,6 +6,7 @@
  * - health_pack: 血包（恢复1HP）
  * - shield_pack: 护盾包（1层护盾，5秒）
  * - speed_pack: 速度包（3秒全局减速50%）
+ * - missile: 导弹 [v1.3.0]（拾取即发射，弱追踪，怪物优先）
  *
  * [v1.1.4] 道具图标视觉区分：每种道具有独特形状，玩家一眼识别效果。
  * 道具受磁吸能力影响，拾取后触发对应效果。
@@ -64,7 +65,48 @@ class Item extends Collectible {
       case 'speed_pack':
         this._drawSpeedIcon(ctx, r)
         break
+      case 'missile':
+        this._drawMissileIcon(ctx, r)
+        break
     }
+  }
+
+  /**
+   * [v1.3.0] 导弹——白色小火箭（弹头+弹身+尾翼）
+   */
+  _drawMissileIcon(ctx, r) {
+    const sr = r * 0.75
+    // 弹身（白色横条）
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = '#000000'
+    ctx.lineWidth = 0.5
+    ctx.fillRect(this.x - sr * 0.5, this.y - sr * 0.25, sr, sr * 0.5)
+    ctx.strokeRect(this.x - sr * 0.5, this.y - sr * 0.25, sr, sr * 0.5)
+    // 弹头（红色三角）
+    ctx.fillStyle = '#e74c3c'
+    ctx.beginPath()
+    ctx.moveTo(this.x + sr * 0.5, this.y - sr * 0.25)
+    ctx.lineTo(this.x + sr * 0.85, this.y)
+    ctx.lineTo(this.x + sr * 0.5, this.y + sr * 0.25)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    // 尾翼
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.moveTo(this.x - sr * 0.5, this.y - sr * 0.25)
+    ctx.lineTo(this.x - sr * 0.8, this.y - sr * 0.55)
+    ctx.lineTo(this.x - sr * 0.25, this.y - sr * 0.25)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(this.x - sr * 0.5, this.y + sr * 0.25)
+    ctx.lineTo(this.x - sr * 0.8, this.y + sr * 0.55)
+    ctx.lineTo(this.x - sr * 0.25, this.y + sr * 0.25)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
   }
 
   /**

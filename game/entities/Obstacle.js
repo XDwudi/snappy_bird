@@ -34,6 +34,11 @@ class Obstacle {
     this.nearMissTriggered = false       // [v1.1.5] 擦边是否已触发（防重复）
     this.type = 'obstacle'  // 子类可覆盖
 
+    // [v1.3.0] HP/受击接口（导弹炸管与 Boss 战铺垫）
+    this.hp = 1
+    this.maxHp = 1
+    this.destructible = false            // 是否可被导弹锁定/摧毁，子类开启
+
     // [v1.1.5] 缩小射线动画
     this.shrinkBonus = 0                 // 间隙增大量（由能力系统设置）
     this.currentShrink = 0               // 当前已缩回量（0 → shrinkBonus）
@@ -115,6 +120,17 @@ class Obstacle {
    */
   isOffscreen() {
     return this.x + this.width < -10
+  }
+
+  /**
+   * [v1.3.0] 受击接口：受到 n 点伤害
+   * @param {number} n - 伤害值
+   * @returns {boolean} true=HP 归零（应销毁）
+   */
+  takeDamage(n) {
+    if (!this.destructible) return false
+    this.hp -= n
+    return this.hp <= 0
   }
 }
 

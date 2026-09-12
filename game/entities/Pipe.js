@@ -18,6 +18,10 @@ class Pipe extends Obstacle {
   constructor(x, topHeight, gap, groundY) {
     super(x, topHeight, gap, groundY, Config.PIPE.WIDTH)
     this.type = 'pipe'
+    // [v1.3.0] 管道可被导弹炸毁（HP=1），为 Boss 铺垫统一受击接口
+    this.destructible = true
+    this.hp = 1
+    this.maxHp = 1
   }
 
   // update() 和 checkCollision() 继承基类默认实现
