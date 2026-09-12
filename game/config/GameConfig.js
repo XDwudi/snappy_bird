@@ -633,6 +633,7 @@ module.exports = {
     ROAM_AMP: 120,              // §4.8 正弦巡游 y 振幅(px)
     ROAM_PERIOD: 240,           // 巡游周期（帧）=4s
     PHASE2_HP_RATIO: 0.5,       // §4.8 P1→P2 阈值（HP<50%）：爆闪30帧+血条变红+弹幕加密
+    PHASE2_FLASH_FRAMES: 30,    // P2 入场闪电粒子爆闪帧数
     FAN_ANGLE_STEP: 0.35,       // §4.8 扇形弹幕间隔角(rad)
     FEATHER_RADIUS: 5,          // 羽刃弹幕半径(px)
     FEATHER_DAMAGE: 1,          // 弹幕伤害（固定 1，走统一受击链）
