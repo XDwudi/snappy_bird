@@ -1,6 +1,14 @@
 # CHANGELOG — 版本历史
 
-## v1.2.3（2026-09-12，当前版本）
+## v1.3.0（2026-09-12，当前版本）
+> 次版本：障碍物系统扩展（怪物）+ 导弹道具 + 减速密度 bug 修复（迭代文档：docs/iterations/迭代_v1.3.0_障碍物系统与导弹.md）
+- feat: 怪物系统——Obstacle 基类扩展 Monster 子类（entities/Monster.js）：蝙蝠怪（正弦垂直波动，HP=1）/浮游怪（滞后追踪小鸟 y、追踪上限 1.1px/帧，HP=2）；45s 新手保护后出现、同屏 ≤2、按滚动距离节奏生成（450px）、生成 y 避开前方管道间隙中心 70px（不堵死通路）；碰撞走统一受击链（无敌帧/护盾/HP），与管道同级；击杀爆炸粒子 + 浮动文字 +10 EXP
+- feat: 导弹道具 🚀——ITEM 表新增 missile（权重 20，与血包同级），拾取即从小鸟位置发射；弱追踪（每帧最多转向 0.07rad）；目标选择：存活怪物最近者优先 → 无怪物选最近 destructible 管道 → 无目标直飞；命中 takeDamage(1)：怪物爆炸+经验，管道炸毁清除给通路+爆炸粒子+轻震屏；导弹速度随世界缩放（速度包减速/时间扭曲同步生效）；同屏上限 3
+- feat: Obstacle 基类补 hp / takeDamage(n) / destructible 接口，管道 destructible=true hp=1（为导弹炸管与 Boss 战铺垫）
+- fix(P1): 减速密度 bug——管道生成从帧数制（spawnTimer≥SPAWN_INTERVAL 帧）改为滚动距离制（_distanceSinceSpawn≥SPAWN_DISTANCE=270px），速度包/时间扭曲只影响移动速度、不再改变空间密度；v1.2.2 N5 ramp 同步改距离版 270→240px（120s→300s 沿用 RAMP_START/TIME）；旧 SPAWN_INTERVAL / SPAWN_INTERVAL_MIN 配置删除，引用处全部清理；怪物生成同为距离制
+- 回归：三模拟器通过；专项断言 13 项全过（减速期 12000px 生成数 44=44 与常速一致 / 怪物优先锁定 / 蝙蝠 1 发、浮游 2 发击杀 / 炸管给通路 / +10 浮动文字 / 45s 保护期零生成 / 同屏上限 2）；gameplay_sim 中位生存 86.5s→63.8s（为基线 73.8%，脚本玩家不躲怪物/不用导弹属预期下降，未跌破 60% 红线）
+
+## v1.2.3（2026-09-12）
 > 热修复版本：线上 P0「升级弹窗不出现」+ 移除跳过按钮（迭代文档：docs/iterations/迭代_v1.2.3_热修复.md）
 - fix(P0): B2 延迟弹板安全区判定修复——v1.2.2 `_isUpgradeSafeZone()` 要求小鸟越过"所有"管道右边缘+边距，但小鸟 x 固定、管道持续从右侧生成，前方恒有未到达管道，安全区恒不成立 → pendingLevelUps 永久挂起、升级弹窗卡死不出现。改为只判定与小鸟横向区间相交（±SAFE_MARGIN_PX）的管道（即"正在穿越的管道"），保留"不在管道中间弹板"设计意图
 - fix(P0): B2-③ 新增保底超时——延迟弹板超 UPGRADE.MAX_DELAY_FRAMES=90 帧（1.5s）安全区仍未满足则强制弹板并 Logger.warn，保证任何情况下弹窗必出现；新增 `_upgradeDelayFrames` 计时，弹板/选卡/无 pending/start/backToReady/restart 全路径清零，防标志位泄漏
