@@ -33,19 +33,20 @@
  *           §2.6 受击链批次2全量：羽盾(最前置)→弹力护盾→护盾层(镜面冲击波)→[冰雹特有:冰晶转化,D8]→
  *           超载溢出临时HP→HP扣减(血契修正)→求生本能→凤凰。
  *           旧卡质变：连击之心Lv3(无敌期过管+5exp)/缩小射线Lv5(间隙封顶+擦边窗口+10)/幸运光环Lv3(面板必含稀有+)。
+ * [v1.5.0] 重构：生成决策（管道/道具/怪物的时机、位置、类型roll、保底计时）拆出至 systems/SpawnSystem.js，
+ *           本类只保留"把生成结果放进数组"的接线（onSpawn* 回调）；行为逐帧等价，随机数消耗顺序不变。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
 const Config = require('../config/GameConfig.js')
 const Bird = require('../entities/Bird.js')
-const Pipe = require('../entities/Pipe.js')
-const Monster = require('../entities/Monster.js')   // [v1.3.0]
+// [v1.5.0] Pipe/Monster/Item 实体构造已随生成决策迁入 systems/SpawnSystem.js，Game 不再直接 require
 const Missile = require('../entities/Missile.js')   // [v1.3.0]
 const Orb = require('../entities/Orb.js')
-const Item = require('../entities/Item.js')
 const ExpSystem = require('../systems/ExpSystem.js')
 const AbilitySystem = require('../systems/AbilitySystem.js')
 const WeatherSystem = require('../systems/WeatherSystem.js')
+const SpawnSystem = require('../systems/SpawnSystem.js')   // [v1.5.0] 生成系统（管道/道具/怪物）
 const Logger = require('../systems/GameLogger.js')
 
 class Game {
@@ -90,14 +91,29 @@ class Game {
     this.abilitySystem = new AbilitySystem()
     this.weatherSystem = new WeatherSystem()   // [v1.2.0] 环境系统
 
+    // [v1.5.0] 生成系统：管道/道具/怪物的生成决策（时机/位置/类型roll/保底计时）。
+    // Game 只保留"把生成结果放进数组"的接线（onSpawn* 回调）。
+    // 状态 _distanceSinceSpawn/_monsterDistance/itemSpawnTimer/supplyLineTimer 已迁入 SpawnSystem。
+    const self = this
+    this.spawnSystem = new SpawnSystem({
+      screenW: this.screenW,
+      screenH: this.screenH,
+      getGameTime: function () { return self.gameTime },
+      getStats: function () { return self.abilitySystem.getStats() },
+      getGapSize: function () { return self._getGapSize() },
+      getOwnedLevel: function (id) { return self.abilitySystem.owned.get(id) || 0 },
+      getPipes: function () { return self.pipes },
+      getMonsterCount: function () { return self.monsters.length },
+      onSpawnPipe: function (pipe) { self.pipes.push(pipe) },
+      onSpawnMonster: function (monster) { self.monsters.push(monster) },
+      onSpawnItem: function (item) { self.items.push(item) }
+    })
+
     // 计时器
-    this._distanceSinceSpawn = 0  // [v1.3.0] 距上次生成管道的累计滚动距离(px)，替代旧 spawnTimer(帧)
-    this._monsterDistance = 0     // [v1.3.0] 距上次生成怪物的累计滚动距离(px)
     this.gameTime = 0
     this.frameCount = 0
     this.survivalTimer = 0
     this.pipesPassed = 0          // [v1.1.0] 通过管道计数
-    this.itemSpawnTimer = 0       // [v1.1.1] 随机道具刷新计时器
 
     // 地面滚动偏移
     this.groundOffset = 0
@@ -115,9 +131,6 @@ class Game {
     // [v1.2.1] 教学提示标记（每局只提示一次）
     this._shieldHintShown = false  // "护盾可挡1次碰撞"
     this._ironBeakHintShown = false // [v1.4.0] 铁喙"无敌中，撞怪反击！"
-
-    // [v1.4.0] 补给线保底道具计时器（与随机生成 itemSpawnTimer 独立）
-    this.supplyLineTimer = 0
 
     // [v1.4.0] 怪物击杀计数（§6.3 火力流击杀指标统计用）
     this.monsterKills = 0
@@ -181,12 +194,10 @@ class Game {
     this.state = Config.GAME.STATE.PLAYING
     this.score = 0
     this.gameTime = 0
-    this._distanceSinceSpawn = 0  // [v1.3.0]
-    this._monsterDistance = 0     // [v1.3.0]
+    this.spawnSystem.reset()      // [v1.5.0] 生成计时状态（管道/怪物距离、道具/补给线计时器）统一由 SpawnSystem 重置
     this.frameCount = 0
     this.survivalTimer = 0
     this.pipesPassed = 0
-    this.itemSpawnTimer = 0       // [v1.1.1] 随机道具刷新计时器
     this.pipes = []
     this.monsters = []            // [v1.3.0]
     this.missiles = []            // [v1.3.0]
@@ -201,7 +212,6 @@ class Game {
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
     this._shieldHintShown = false // [v1.2.1] 重置教学提示
     this._ironBeakHintShown = false // [v1.4.0] 重置铁喙教学提示
-    this.supplyLineTimer = 0      // [v1.4.0] 补给线保底计时
     this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
     this.monsterKills = 0         // [v1.4.0] 怪物击杀计数
 
@@ -249,8 +259,7 @@ class Game {
     this.pipes = []
     this.monsters = []            // [v1.3.0]
     this.missiles = []            // [v1.3.0]
-    this._distanceSinceSpawn = 0  // [v1.3.0]
-    this._monsterDistance = 0     // [v1.3.0]
+    this.spawnSystem.reset()      // [v1.5.0] 生成计时状态统一由 SpawnSystem 重置
     this.orbs = []
     this.items = []
     this.nearMissEffects = []
@@ -262,8 +271,6 @@ class Game {
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
     this._shieldHintShown = false // [v1.2.1] 重置教学提示
     this._ironBeakHintShown = false // [v1.4.0]
-    this.itemSpawnTimer = 0       // [v1.1.1]
-    this.supplyLineTimer = 0      // [v1.4.0] 补给线保底计时
     this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
     this.monsterKills = 0         // [v1.4.0] 怪物击杀计数
 
@@ -496,28 +503,9 @@ class Game {
     // 滚动速度（含能力修饰 + 速度包减速）——[v1.3.0] 提前计算，生成节奏改按滚动距离
     const scrollSpeed = this._getScrollSpeed()
 
-    // [v1.3.0] 管道生成改为距离制：累计滚动距离达标才生成
-    // 修复减速 bug：速度包/时间扭曲只影响移动速度，不再改变管道空间密度
-    this._distanceSinceSpawn += scrollSpeed
-    if (this._distanceSinceSpawn >= this._getSpawnDistance()) {  // [v1.2.2] N5 距离随时间收紧
-      this._spawnPipe()
-      this._distanceSinceSpawn = 0
-    }
-
-    // [v1.3.0] 怪物生成（45s 新手保护后，同样按滚动距离节奏）
-    this._updateMonsterSpawn(scrollSpeed)
-
-    // [v1.1.1] 随机道具刷新（独立于管道通过）
-    this.itemSpawnTimer++
-    if (this.itemSpawnTimer >= Config.ITEM.RANDOM_SPAWN_INTERVAL) {
-      if (Math.random() < Config.ITEM.RANDOM_SPAWN_CHANCE) {
-        this._spawnRandomItem()
-      }
-      this.itemSpawnTimer = 0
-    }
-
-    // [v1.4.0] 补给线：保底道具计时（与随机生成独立）
-    this._updateSupplyLine()
+    // [v1.5.0] 生成决策统一入口：管道（距离制）→ 怪物（45s保护+距离节奏）→ 随机道具计时 → 补给线保底。
+    // 调用顺序与原四处散点完全一致，随机数消耗顺序不变；实体经 onSpawn* 回调回到 Game 数组。
+    this.spawnSystem.update(scrollSpeed)
 
     // [v1.4.0] 经验银行生息：对齐天气 10s 检查节奏（WEATHER.CHECK_INTERVAL），不新增逐帧计时器
     if (this.expSystem.bankEnabled && this.gameTime % Config.WEATHER.CHECK_INTERVAL === 0) {
@@ -689,18 +677,7 @@ class Game {
     return true
   }
 
-  /**
-   * [v1.3.0] 管道生成间隔改距离制：返回当前生成间隔（滚动像素）。
-   * [v1.2.2] N5 ramp 同步改距离版：120s起从270px线性收紧，至300s达240px下限。
-   * 与帧数制无关——减速期空间密度保持不变。
-   * @returns {number} 当前生成间隔（px）
-   */
-  _getSpawnDistance() {
-    const P = Config.PIPE
-    if (this.gameTime <= P.SPAWN_RAMP_START) return P.SPAWN_DISTANCE
-    const t = Math.min(1, (this.gameTime - P.SPAWN_RAMP_START) / P.SPAWN_RAMP_TIME)
-    return Math.round(P.SPAWN_DISTANCE + (P.SPAWN_DISTANCE_MIN - P.SPAWN_DISTANCE) * t)
-  }
+  // [v1.5.0] 管道生成间隔 ramp（原 _getSpawnDistance）已迁入 systems/SpawnSystem.js → getSpawnDistance()
 
   _updateClouds() {
     for (const cloud of this.clouds) {
@@ -995,71 +972,8 @@ class Game {
     return Math.max(base - reduction, Config.PIPE.MIN_GAP + stats.gapBonus * 0.5)
   }
 
-  // ==================== 管道生成 ====================
-
-  _spawnPipe() {
-    const stats = this.abilitySystem.getStats()
-    const gapBonus = stats.gapBonus
-    // [v1.1.5] 管道以基础间隙生成，动画缩回至最终间隙(baseGap + gapBonus)
-    const finalGap = this._getGapSize()  // 含 gapBonus 的最终间隙
-    const baseGap = finalGap - gapBonus   // 不含 gapBonus 的基础间隙
-    const groundY = this.screenH - Config.GROUND.HEIGHT
-    const minTop = Config.PIPE.MIN_TOP
-    const maxTop = groundY - finalGap - Config.PIPE.MIN_BOTTOM
-    const topHeight = minTop + Math.random() * (maxTop - minTop)
-    // 以基础间隙生成，shrinkBonus 驱动缩回动画
-    const pipe = new Pipe(this.screenW + 10, topHeight, baseGap, groundY)
-    pipe.shrinkBonus = gapBonus
-    this.pipes.push(pipe)
-  }
-
-  // ==================== [v1.3.0] 怪物系统 ====================
-
-  /**
-   * [v1.3.0] 怪物生成：45s 新手保护期后，按滚动距离节奏生成，同时最多 MAX_ALIVE 只
-   * @param {number} scrollSpeed - 当前滚动速度
-   */
-  _updateMonsterSpawn(scrollSpeed) {
-    const M = Config.MONSTER
-    if (this.gameTime < M.SPAWN_DELAY) return
-    if (this.monsters.length >= M.MAX_ALIVE) return
-    this._monsterDistance += scrollSpeed
-    if (this._monsterDistance < M.SPAWN_DISTANCE) return
-    this._monsterDistance = 0
-
-    const type = Math.random() < M.BAT_WEIGHT ? 'bat' : 'floater'
-    const groundY = this.screenH - Config.GROUND.HEIGHT
-    const y = this._pickMonsterY()
-    const monster = new Monster(this.screenW + 30, y, type, groundY)
-    this.monsters.push(monster)
-    Logger.info('Monster', '生成怪物', { type: type, x: monster.x, y: monster.y, gameTime: this.gameTime })
-  }
-
-  /**
-   * [v1.3.0] 选取怪物生成 y：避开前方管道间隙正中央（不堵死通路）。
-   * 随机尝试 SPAWN_Y_ATTEMPTS 次，取第一个与所有将至管道间隙中心
-   * 距离 >= SAFE_GAP_DIST 的候选；失败则用最后候选（概率极低）。
-   * @returns {number}
-   */
-  _pickMonsterY() {
-    const M = Config.MONSTER
-    const groundY = this.screenH - Config.GROUND.HEIGHT
-    const minY = Config.PIPE.MIN_TOP + M.MIN_Y_MARGIN
-    const maxY = groundY - M.MIN_Y_MARGIN
-    let y = (minY + maxY) / 2
-    for (let attempt = 0; attempt < M.SPAWN_Y_ATTEMPTS; attempt++) {
-      y = minY + Math.random() * (maxY - minY)
-      let safe = true
-      for (const pipe of this.pipes) {
-        // 只看即将到达小鸟的管道（屏幕右半部分之外的不参与避让）
-        if (pipe.x + pipe.width < this.screenW * 0.5) continue
-        const gapCenter = pipe.topHeight + pipe.gap / 2
-        if (Math.abs(y - gapCenter) < M.SAFE_GAP_DIST) { safe = false; break }
-      }
-      if (safe) break
-    }
-    return y
-  }
+  // [v1.5.0] 管道生成（_spawnPipe）、怪物生成（_updateMonsterSpawn/_pickMonsterY）
+  // 已迁入 systems/SpawnSystem.js → spawnPipe() / updateMonsterSpawn() / pickMonsterY()
 
   /**
    * [v1.3.0] 怪物更新与小鸟碰撞（走 _handleCollision 统一受击链，与管道同级）
@@ -1100,7 +1014,7 @@ class Game {
     // [v1.4.0] 拾荒者掉落（同屏怪物≤2 + 生成距离450px 天然限速，无需额外刹车）
     const scavLv = this.abilitySystem.owned.get('scavenger') || 0
     if (scavLv > 0 && Math.random() < Config.MONSTER.SCAVENGER_CHANCE_PER_LV * scavLv) {
-      this._spawnRandomItem()
+      this.spawnSystem.spawnRandomItem()  // [v1.5.0] 生成决策迁入 SpawnSystem
       Logger.info('Item', '拾荒者掉落道具', { lv: scavLv })
     }
 
@@ -1350,34 +1264,8 @@ class Game {
     }
   }
 
-  // [v1.1.1] 随机道具刷新（不依赖管道通过）
-  _spawnRandomItem() {
-    const groundY = this.screenH - Config.GROUND.HEIGHT
-    const minY = Config.PIPE.MIN_TOP + 30
-    const maxY = groundY - 30
-    const itemY = minY + Math.random() * (maxY - minY)
-    const itemX = this.screenW + 20
-    const itemType = this._rollItemType()
-    this.items.push(new Item(itemX, itemY, itemType))
-  }
-
-  /**
-   * [v1.4.0] 补给线（supply_line）：每 (75-15*(lv-1))s 保底生成 1 个随机道具
-   * 保底计时与随机生成（itemSpawnTimer / 过管25%）完全独立；
-   * 权重沿用 _rollItemType（TYPE_WEIGHTS，不含导弹倾斜），防"保底导弹流"变最优解
-   */
-  _updateSupplyLine() {
-    const lv = this.abilitySystem.owned.get('supply_line') || 0
-    if (lv <= 0) return
-    this.supplyLineTimer++
-    const interval = (Config.ITEM.SUPPLY_LINE_BASE_SEC -
-      Config.ITEM.SUPPLY_LINE_REDUCTION_SEC * (lv - 1)) * 60
-    if (this.supplyLineTimer >= interval) {
-      this.supplyLineTimer = 0
-      this._spawnRandomItem()
-      Logger.info('Item', '补给线保底道具', { lv: lv, intervalSec: interval / 60 })
-    }
-  }
+  // [v1.5.0] 随机道具生成（_spawnRandomItem/_rollItemType）与补给线保底（_updateSupplyLine，
+  // 属道具生成职责）已迁入 systems/SpawnSystem.js → spawnRandomItem() / rollItemType() / updateSupplyLine()
 
   // ==================== 通过管道处理 ====================
 
@@ -1410,31 +1298,11 @@ class Game {
     this.abilitySystem.onPipePassEchoWing()
 
     // [v1.1.0] 生成道具 [v1.1.3] 修复：在小鸟前方生成（右侧），不在后方（管道位置）
-    if (Math.random() < Config.ITEM.SPAWN_CHANCE) {
-      const itemX = this.screenW + 20 + Math.random() * 40  // [v1.1.3] 前方生成
-      const groundY = this.screenH - Config.GROUND.HEIGHT
-      const minY = Config.PIPE.MIN_TOP + 30
-      const maxY = groundY - 30
-      const itemY = minY + Math.random() * (maxY - minY)
-      const itemType = this._rollItemType()
-      this.items.push(new Item(itemX, itemY, itemType))
-    }
+    // [v1.5.0] 掉落决策（25% 概率+位置+类型 roll）迁入 SpawnSystem，随机数消耗顺序不变
+    this.spawnSystem.maybeSpawnItemOnPipePass()
   }
 
-  // [v1.1.0] 道具类型随机
-  _rollItemType() {
-    const weights = Config.ITEM.TYPE_WEIGHTS
-    const types = Object.keys(weights)
-    let total = 0
-    for (const t of types) total += weights[t]
-
-    let r = Math.random() * total
-    for (const t of types) {
-      r -= weights[t]
-      if (r <= 0) return t
-    }
-    return types[0]
-  }
+  // [v1.5.0] 道具类型权重随机（_rollItemType）已迁入 systems/SpawnSystem.js → rollItemType()
 
   // [v1.1.5] 擦边检测：每帧检查（小鸟在管道x范围内时），距离增大25px，防重复触发
   _checkNearMiss(pipe) {
