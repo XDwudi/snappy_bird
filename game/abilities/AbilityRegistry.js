@@ -54,12 +54,14 @@ class AbilityRegistry {
    * - levelBonus 越稀有越大，使稀有能力随等级提高出现率
    * - 结果不超过 maxWeight
    * - 新能力（currentLevel=0）额外乘以 NEW_ABILITY_BONUS
+   * - [v1.4.0] §8-R1：coreBoost=true（未持有任何流派核心）时，流派核心卡（未拥有）额外乘 ARCHETYPE_CORE_WEIGHT
    * @param {Object} ability - 能力定义
    * @param {number} currentLevel - 当前等级（0=未拥有）
    * @param {number} playerLevel - 玩家当前等级
+   * @param {boolean} [coreBoost] - 是否启用流派核心加权（由 rollChoices/rollRarePlus 按持有状态判定）
    * @returns {number} 权重值
    */
-  getWeight(ability, currentLevel, playerLevel) {
+  getWeight(ability, currentLevel, playerLevel, coreBoost) {
     const rarityKey = (ability.rarity || 'common').toUpperCase()
     const rarity = Config.RARITY[rarityKey] || Config.RARITY.COMMON
 
@@ -73,9 +75,27 @@ class AbilityRegistry {
     // 新能力额外加成
     if (currentLevel === 0) {
       weight *= Config.ABILITY.NEW_ABILITY_BONUS
+
+      // [v1.4.0] 流派核心卡加权（§8-R1 第二手段）：仅对未拥有的核心卡生效
+      if (coreBoost && Config.ABILITY.ARCHETYPE_CORE_IDS.indexOf(ability.id) !== -1) {
+        weight *= Config.ABILITY.ARCHETYPE_CORE_WEIGHT
+      }
     }
 
     return weight
+  }
+
+  /**
+   * [v1.4.0] §8-R1：流派核心加权是否生效——已持有核心数 < ARCHETYPE_CORE_BOOST_MAX_OWNED
+   * @param {Map} owned
+   * @returns {boolean}
+   */
+  _coreBoostActive(owned) {
+    let cores = 0
+    for (const id of Config.ABILITY.ARCHETYPE_CORE_IDS) {
+      if ((owned.get(id) || 0) > 0) cores++
+    }
+    return cores < Config.ABILITY.ARCHETYPE_CORE_BOOST_MAX_OWNED
   }
 
   /**
@@ -87,13 +107,15 @@ class AbilityRegistry {
    */
   rollChoices(owned, count, playerLevel) {
     const candidates = []
+    // [v1.4.0] §8-R1：持有核心数不足阈值时启用核心卡加权（抬未成型局的成型率）
+    const coreBoost = this._coreBoostActive(owned)
 
     for (const ab of Abilities) {
       const currentLevel = owned.get(ab.id) || 0
       // 已满级的能力不参与抽取
       if (currentLevel >= ab.maxLevel) continue
 
-      const weight = this.getWeight(ab, currentLevel, playerLevel)
+      const weight = this.getWeight(ab, currentLevel, playerLevel, coreBoost)
       candidates.push({ ability: ab, weight })
     }
 
@@ -178,12 +200,14 @@ class AbilityRegistry {
     const excluded = {}
     for (const id of excludeIds) excluded[id] = true
     const pool = []
+    // [v1.4.0] §8-R1：与 rollChoices 同一核心加权口径
+    const coreBoost = this._coreBoostActive(owned)
     for (const ab of Abilities) {
       if ((ab.rarity || 'common') === 'common') continue
       if (excluded[ab.id]) continue
       const currentLevel = owned.get(ab.id) || 0
       if (currentLevel >= ab.maxLevel) continue
-      pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel) })
+      pool.push({ ability: ab, weight: this.getWeight(ab, currentLevel, playerLevel, coreBoost) })
     }
     if (pool.length === 0) return null
     const totalWeight = pool.reduce((sum, c) => sum + c.weight, 0)

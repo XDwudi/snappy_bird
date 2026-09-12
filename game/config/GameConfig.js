@@ -399,7 +399,16 @@ module.exports = {
     },
 
     // [v1.1.3] 新能力权重倍率
-    NEW_ABILITY_BONUS: 1.3,  // 未拥有能力权重额外乘数
+    // [v1.4.0] §8-R1 预案执行：55 卡池稀释导致流派核心套凑齐率下降（§6.3 ①③ 未达标），1.3→1.5
+    NEW_ABILITY_BONUS: 1.5,  // 未拥有能力权重额外乘数
+
+    // [v1.4.0] §8-R1 预案第二手段：流派核心卡加权——持有核心数少于阈值时，
+    // 核心卡（未拥有）权重额外 ×1.5，抬"尚未成型"局的流派成型率；成型后恢复正常（防滚雪球）
+    // （第2轮 ×1.3/阈值0 实测 ①2.6倍 不足，第3轮调整为 ×1.5/阈值<2——单核心即断供仍难成套）
+    ARCHETYPE_CORE_IDS: ['bounce_shield', 'toughness', 'combo_heart', 'shrink_ray', 'greed',
+      'exp_resonance', 'storm_child', 'missile_barrage', 'missile_rack', 'iron_beak'],
+    ARCHETYPE_CORE_WEIGHT: 1.5,
+    ARCHETYPE_CORE_BOOST_MAX_OWNED: 2,  // 持有核心数 < 此值时加权生效
 
     // [v1.2.2] N9 软保底：连续5次升级面板无稀有及以上卡时，下一面板保底1张稀有+
     PITY_THRESHOLD: 5
