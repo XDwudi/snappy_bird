@@ -23,6 +23,16 @@
  *           10s生息+HUD小金库)、定风珠(天气过渡期debuff免疫)、镜面护盾(破盾冲击波3s刹车)、
  *           经验潮汐(天气期经验+25%/级)、羽舞(二段跳后擦边窗口+金色尾迹)。
  *           §2.6 受击链按表插入：铁喙(最前置,仅怪物)→护盾消耗(镜面冲击波)→HP扣减→求生本能补盾→凤凰。
+ * [v1.4.0] 能力扩展包批次2（14卡：rare×8+epic×6）：火力覆盖(定时自动导弹,独立枪口闪光)、
+ *           超载神盾(CD缩短+Lv3溢出转临时HP,HUD空心心形)、猎手标记(导弹加伤+连锁爆炸不二次连锁)、
+ *           回响之翼(过管攒羽盾,受击链最前置,HUD羽毛图标)、风暴之眼(并发≥2生效)、蜂群链路(1.5s窗+1叠层硬顶)、
+ *           铁羽(羽盾上限+1全局硬顶2层+破盾无敌,无回响灰显)、先知(⭐/🔗/⚠️标注)、
+ *           导弹风暴(拾取改连发,刷新不叠加,同屏硬刹车)、风暴驯化(驯化天气+互斥标记)、
+ *           血契(maxHp-1换增益,狂暴减半写死)、幻影舞步(90帧黄金窗只刷新不叠加+金色残影)、
+ *           顿悟(200%双升每局限3)、时之晶(寄生时间扭曲冻结怪物)。
+ *           §2.6 受击链批次2全量：羽盾(最前置)→弹力护盾→护盾层(镜面冲击波)→[冰雹特有:冰晶转化,D8]→
+ *           超载溢出临时HP→HP扣减(血契修正)→求生本能→凤凰。
+ *           旧卡质变：连击之心Lv3(无敌期过管+5exp)/缩小射线Lv5(间隙封顶+擦边窗口+10)/幸运光环Lv3(面板必含稀有+)。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -109,6 +119,9 @@ class Game {
     // [v1.4.0] 补给线保底道具计时器（与随机生成 itemSpawnTimer 独立）
     this.supplyLineTimer = 0
 
+    // [v1.4.0] 怪物击杀计数（§6.3 火力流击杀指标统计用）
+    this.monsterKills = 0
+
     // [v1.4.0] 天气活跃状态跟踪（经验潮汐"潮汐退去"提示用）
     this._prevWeatherActive = false
 
@@ -190,6 +203,7 @@ class Game {
     this._ironBeakHintShown = false // [v1.4.0] 重置铁喙教学提示
     this.supplyLineTimer = 0      // [v1.4.0] 补给线保底计时
     this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
+    this.monsterKills = 0         // [v1.4.0] 怪物击杀计数
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -251,6 +265,7 @@ class Game {
     this.itemSpawnTimer = 0       // [v1.1.1]
     this.supplyLineTimer = 0      // [v1.4.0] 补给线保底计时
     this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
+    this.monsterKills = 0         // [v1.4.0] 怪物击杀计数
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -292,6 +307,14 @@ class Game {
     // [v1.4.0] 经验银行：同步银行开关与生息率到 ExpSystem
     this.expSystem.configureBank(this.abilitySystem.owned.get('exp_bank') || 0)
 
+    // [v1.4.0] 顿悟：同步开关到 ExpSystem
+    this.expSystem.configureEnlighten(this.abilitySystem.owned.get('enlightenment') || 0)
+
+    // [v1.4.0] 风暴驯化：获得时驯化当前天气（并发取最早触发者）；无天气则等下一种（命运感，不给挑）
+    if (abilityId === 'chaos_dice') {
+      this._applyChaosDiceTaming()
+    }
+
     // [v1.4.0] 铁喙出场教学浮动文字（只提示一次）
     if (abilityId === 'iron_beak' && !this._ironBeakHintShown) {
       this._ironBeakHintShown = true
@@ -321,6 +344,26 @@ class Game {
   }
 
   // ==================== 主循环 ====================
+
+  /**
+   * [v1.4.0] 风暴驯化（chaos_dice）：获得时驯化当前天气；无天气活跃则置 tamedPending 等下一种
+   * 并发时取最早触发的效果（activeEffects[0]，确定性，不用随机——保留史诗命运感但不引入额外随机源）
+   */
+  _applyChaosDiceTaming() {
+    const ws = this.weatherSystem
+    if (ws.tamedWeather) return  // maxLevel=1，理论不会二次获得，防御
+    if (ws.activeEffects.length > 0) {
+      ws.tamedWeather = ws.activeEffects[0].type
+      const tamedNames = { wind: '风', rain: '雨', hail: '冰雹' }
+      this._addFloatingText(this.screenW / 2, this.screenH * 0.3,
+        `风暴驯化：${tamedNames[ws.tamedWeather] || ws.tamedWeather}!`, '#7fff7f', 90)
+      Logger.info('Weather', '风暴驯化生效', { type: ws.tamedWeather })
+    } else {
+      ws.tamedPending = true
+      this._addFloatingText(this.screenW / 2, this.screenH * 0.3, '风暴驯化：等待下一种天气…', '#7fff7f', 90)
+      Logger.info('Weather', '风暴驯化挂起（当前无天气）')
+    }
+  }
 
   loop() {
     if (this.running) return
@@ -422,6 +465,8 @@ class Game {
     // [v1.2.0] 通知能力系统环境活跃状态
     const weatherActiveNow = this.weatherSystem.activeEffects.length > 0
     this.abilitySystem.setWeatherActive(weatherActiveNow)
+    // [v1.4.0] 风暴之眼：同步天气并发数（≥2 时 debuff 缩放+经验倍率在 getStats/getWeatherDebuffScale 结算）
+    this.abilitySystem.setWeatherConcurrent(this.weatherSystem.activeEffects.length)
     // [v1.4.0] 经验潮汐：天气结束后浮动文字"潮汐退去"提示（N7 静默教训）
     if (!weatherActiveNow && this._prevWeatherActive &&
         (this.abilitySystem.owned.get('exp_tide') || 0) > 0) {
@@ -494,6 +539,21 @@ class Game {
         maxLife: 18,
         size: 2,
         color: '255, 215, 0'  // 金色
+      })
+    }
+
+    // [v1.4.0] 幻影舞步：黄金窗口期小鸟金色残影（视觉承诺必须兑现，N7 教训）——比羽舞更亮更密
+    if (this.abilitySystem.phantomWindowFrames > 0 && this.frameCount % 2 === 0) {
+      this.abilityEffects.push({
+        kind: 'dot',
+        x: this.bird.x - 8 - Math.random() * 6,
+        y: this.bird.y + (Math.random() - 0.5) * 10,
+        vx: -0.8 - Math.random() * 0.6,
+        vy: (Math.random() - 0.5) * 0.6,
+        life: 22,
+        maxLife: 22,
+        size: 2.5,
+        color: '255, 240, 150'  // 亮金残影
       })
     }
 
@@ -741,6 +801,47 @@ class Game {
       } else if (ev.type === 'mirror_shock') {
         // [v1.4.0] 镜面护盾：破盾冲击波 AoE 结算
         this._triggerMirrorShock()
+      } else if (ev.type === 'barrage_fire') {
+        // [v1.4.0] 火力覆盖：定时自动导弹——独立枪口闪光（橙白小闪点），不用道具拾取特效（防误认来源）
+        this.abilityEffects.push({
+          kind: 'ring',
+          x: this.bird.x + this.bird.width / 2 + 4,
+          y: this.bird.y,
+          vx: 0,
+          vy: 0,
+          life: 12,
+          maxLife: 12,
+          size: 4,
+          color: '255, 230, 160'  // 枪口闪光（亮橙白）
+        })
+        this._fireMissile({ silent: true })  // 自动导弹不弹"拾取发射"文字
+        Logger.info('Missile', '火力覆盖自动发射', { lv: this.abilitySystem.owned.get('missile_barrage') })
+      } else if (ev.type === 'storm_fire') {
+        // [v1.4.0] 导弹风暴：连发节拍（同屏 MAX_ALIVE 上限在 _fireMissile 硬刹车）
+        this._fireMissile({ silent: true })
+      } else if (ev.type === 'temp_hp') {
+        // [v1.4.0] 超载神盾质变：溢出护盾转临时HP 提示
+        this._addFloatingText(this.bird.x, this.bird.y - 40, '超载:临时HP+1!', '#ff9aa0', 50)
+      } else if (ev.type === 'temp_hp_break') {
+        // [v1.4.0] 临时HP被消耗提示
+        this._addFloatingText(this.bird.x, this.bird.y - 40, '临时HP-1', '#ff9aa0', 40)
+      } else if (ev.type === 'feather_shield') {
+        // [v1.4.0] 回响之翼：羽盾获得（羽毛色环+提示）
+        this.abilityEffects.push({
+          kind: 'ring',
+          x: this.bird.x,
+          y: this.bird.y,
+          vx: 0,
+          vy: 0,
+          life: 24,
+          maxLife: 24,
+          size: this.bird.width * 0.6,
+          color: '255, 242, 200'  // 羽毛白金色
+        })
+        this._addFloatingText(this.bird.x, this.bird.y - 40, '羽盾+1!', '#fff2c8', 45)
+      } else if (ev.type === 'feather_break') {
+        // [v1.4.0] 羽盾破裂抵挡提示（铁羽无敌帧已在 consumeFeatherShield 结算）
+        this._addFloatingText(this.bird.x, this.bird.y - 40, '羽盾挡下!', '#fff2c8', 45)
       }
     }
 
@@ -839,9 +940,12 @@ class Game {
       screenW: this.screenW,
       screenH: this.screenH,
       abilities: this.abilitySystem,
+      weather: this.weatherSystem,  // [v1.4.0] 风暴驯化状态查询（isTamed）
       gravityModifier: 0,           // 输出：重力增加比例（由效果写入）
       windScrollModifier: 0,        // 输出：风力滚动速度修饰（由效果写入）
       addFloatingText: (x, y, text, color, life) => this._addFloatingText(x, y, text, color, life),
+      // [v1.4.0] 驯化冰雹掉 exp 的统一经验入口（含倍率/共鸣/银行/顿悟全链路）
+      gainExp: (amount, source) => this._gainExp(amount, source, this.abilitySystem.getStats()),
       triggerPhoenixRevive: () => this._startPhoenixRevive(),
       triggerGameOver: () => this._gameOver(),
       damageFlash: 0,
@@ -959,13 +1063,17 @@ class Game {
 
   /**
    * [v1.3.0] 怪物更新与小鸟碰撞（走 _handleCollision 统一受击链，与管道同级）
+   * [v1.4.0] 时之晶：冻结期怪物停止移动/追踪，但不取消碰撞判定
+   *           （铁喙协同建立在受击链不变上："冻结期碰瓷零风险"）
    * @param {number} scrollSpeed - 当前滚动速度（减速对怪物同步生效）
    * @returns {boolean} true=游戏结束
    */
   _updateMonsters(scrollSpeed) {
+    // [v1.4.0] 时之晶冻结：怪物/弹幕（v1.5.0）冻结，鸟可动；友方导弹不冻结
+    const frozen = this.abilitySystem.timeCrystalFreezeFrames > 0
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const monster = this.monsters[i]
-      monster.update(scrollSpeed, this.bird)
+      if (!frozen) monster.update(scrollSpeed, this.bird)
 
       if (monster.isOffscreen() || monster.hp <= 0) {
         this.monsters.splice(i, 1)
@@ -987,6 +1095,7 @@ class Game {
     this._spawnExplosion(monster.x + monster.width / 2, monster.y, '255, 120, 40', 12)
     const stats = this.abilitySystem.getStats()
     this._gainExp(Config.MONSTER.KILL_EXP, 'monster_kill', stats)
+    this.monsterKills++  // [v1.4.0] §6.3 火力流击杀指标统计
 
     // [v1.4.0] 拾荒者掉落（同屏怪物≤2 + 生成距离450px 天然限速，无需额外刹车）
     const scavLv = this.abilitySystem.owned.get('scavenger') || 0
@@ -1004,10 +1113,12 @@ class Game {
    * [v1.3.0] 拾取导弹道具：从小鸟位置发射 1 枚导弹（拾取即触发）
    * [v1.4.0] 导弹挂架（missile_rack）：每次发射 +lv 枚扇形（"发射事件"级拦截，不区分导弹来源）
    * 实现坑已规避：MAX_ALIVE 先与挂架等级挂钩（3+lv），否则扇形瞬间占满上限、满级卡无效
+   * [v1.4.0] opts.silent：自动来源（火力覆盖/导弹风暴连发）不弹"🚀 发射!"拾取文字
+   * @param {Object} [opts] - { silent: boolean }
    */
-  _fireMissile() {
+  _fireMissile(opts) {
     const rackLv = this.abilitySystem.owned.get('missile_rack') || 0
-    const maxAlive = Config.MISSILE.MAX_ALIVE + rackLv  // [v1.4.0] 上限与挂架等级挂钩
+    const maxAlive = Config.MISSILE.MAX_ALIVE + rackLv  // [v1.4.0] 上限与挂架等级挂钩（同屏硬刹车）
     const count = 1 + rackLv
     const target = this._pickMissileTarget()
 
@@ -1022,11 +1133,13 @@ class Game {
     }
     if (fired <= 0) return
 
-    this._addFloatingText(
-      this.bird.x, this.bird.y - 30,
-      fired > 1 ? `🚀 发射x${fired}!` : '🚀 发射!',
-      '#e67e22', 45
-    )
+    if (!(opts && opts.silent)) {
+      this._addFloatingText(
+        this.bird.x, this.bird.y - 30,
+        fired > 1 ? `🚀 发射x${fired}!` : '🚀 发射!',
+        '#e67e22', 45
+      )
+    }
     Logger.info('Missile', '发射导弹', {
       count: fired,
       rackLv: rackLv,
@@ -1086,40 +1199,96 @@ class Game {
 
   /**
    * [v1.3.0] 导弹命中检测：怪物优先，其次可破坏管道
+   * [v1.4.0] 猎手标记：导弹伤害 +lv，击杀触发连锁爆炸（硬规则：连锁击杀不再二次连锁）；
+   *           蜂群链路：命中后 1.5s 窗内下一发 +1（叠层上限 1+lv 硬封顶，窗破清零）
    * @param {Missile} missile
    * @returns {boolean} true=命中（导弹销毁）
    */
   _checkMissileHit(missile) {
+    const hunterLv = this.abilitySystem.owned.get('hunter_mark') || 0
+    const linkLv = this.abilitySystem.owned.get('missile_link') || 0
+    // 本次伤害 = 基础 + 猎手标记 + 蜂群链路当前叠层
+    const damage = Config.MISSILE.DAMAGE + hunterLv + this.abilitySystem.missileLinkStacks
+
+    let hitSomething = false
+    let killedMonster = null
+
     // 怪物优先
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const m = this.monsters[i]
       if (m.hp <= 0) continue
       if (missile.hitTest(m)) {
-        this._damageObstacle(m, Config.MISSILE.DAMAGE)
+        this._damageObstacle(m, damage)
+        hitSomething = true
         if (m.hp <= 0) {
+          killedMonster = m
           this._onMonsterKilled(m)
           this.monsters.splice(i, 1)
         } else {
-          Logger.info('Missile', '命中怪物', { type: m.monsterType, hp: m.hp })
+          Logger.info('Missile', '命中怪物', { type: m.monsterType, hp: m.hp, damage: damage })
         }
-        return true
+        break
       }
     }
 
     // 可破坏管道
-    for (let i = this.pipes.length - 1; i >= 0; i--) {
-      const p = this.pipes[i]
-      if (!p.destructible || p.hp <= 0) continue
-      if (missile.hitTest(p)) {
-        this._damageObstacle(p, Config.MISSILE.DAMAGE)
-        if (p.hp <= 0) {
-          this._onPipeDestroyed(p)
-          this.pipes.splice(i, 1)
+    if (!hitSomething) {
+      for (let i = this.pipes.length - 1; i >= 0; i--) {
+        const p = this.pipes[i]
+        if (!p.destructible || p.hp <= 0) continue
+        if (missile.hitTest(p)) {
+          this._damageObstacle(p, damage)
+          hitSomething = true
+          if (p.hp <= 0) {
+            this._onPipeDestroyed(p)
+            this.pipes.splice(i, 1)
+          }
+          break
         }
-        return true
       }
     }
-    return false
+
+    if (!hitSomething) return false
+
+    // [v1.4.0] 蜂群链路：任何命中都续窗+叠层（硬封顶 1+lv）
+    if (linkLv > 0) {
+      this.abilitySystem.missileLinkStacks = Math.min(
+        this.abilitySystem.missileLinkStacks + 1, 1 + linkLv)
+      this.abilitySystem.missileLinkWindow = Config.MISSILE.LINK_WINDOW_FRAMES
+    }
+
+    // [v1.4.0] 猎手标记：击杀连锁爆炸（半径 50+10*lv px）
+    if (killedMonster && hunterLv > 0) {
+      this._chainExplode(killedMonster, hunterLv)
+    }
+    return true
+  }
+
+  /**
+   * [v1.4.0] 猎手标记连锁爆炸：击杀点 (50+10*lv)px 内其他怪物受 1 伤害
+   * 硬规则（防指数回路）：连锁爆炸造成的击杀**不再**触发二次连锁——本函数内不递归调用自身；
+   * 对 Boss 无效（isBoss 分支，v1.5.0 预留）
+   */
+  _chainExplode(center, hunterLv) {
+    const radius = Config.MISSILE.HUNTER_CHAIN_BASE_RADIUS +
+      Config.MISSILE.HUNTER_CHAIN_RADIUS_PER_LV * hunterLv
+    const cx = center.x + center.width / 2
+    const cy = center.y
+    let chainKills = 0
+    for (const m of this.monsters) {
+      if (m.hp <= 0 || m.isBoss) continue
+      const dx = m.x + m.width / 2 - cx
+      const dy = m.y - cy
+      if (dx * dx + dy * dy <= radius * radius) {
+        m.takeDamage(1)
+        if (m.hp <= 0) {
+          chainKills++
+          this._onMonsterKilled(m)  // 连锁击杀给经验/掉落，但不再触发连锁；尸体由 _updateMonsters 回收
+        }
+      }
+    }
+    this._spawnExplosion(cx, cy, '255, 200, 60', 10)
+    Logger.info('Missile', '猎手标记连锁爆炸', { radius: radius, chainKills: chainKills })
   }
 
   /**
@@ -1230,6 +1399,16 @@ class Game {
     // 连击
     this.abilitySystem.onPipePass()
 
+    // [v1.4.0] 连击之心 Lv3 质变：无敌期间每过 1 管 +5exp（不延长无敌，奖励改经验不碰生存边）
+    // 注：onPipePass 在无敌期不累计 combo（N1 修复），本经验奖励是 Lv3 的替代收益出口
+    if ((this.abilitySystem.owned.get('combo_heart') || 0) >= 3 &&
+        this.abilitySystem.invincibleFrames > 0) {
+      this._gainExp(Config.ABILITY.COMBO_HEART_L3_EXP, 'combo_heart_l3', stats)
+    }
+
+    // [v1.4.0] 回响之翼：过管攒羽盾（上限 1+铁羽，全局硬顶 2）
+    this.abilitySystem.onPipePassEchoWing()
+
     // [v1.1.0] 生成道具 [v1.1.3] 修复：在小鸟前方生成（右侧），不在后方（管道位置）
     if (Math.random() < Config.ITEM.SPAWN_CHANCE) {
       const itemX = this.screenW + 20 + Math.random() * 40  // [v1.1.3] 前方生成
@@ -1270,10 +1449,26 @@ class Game {
     const danceBonus = (danceLv > 0 && this.abilitySystem.featherDanceFrames > 0)
       ? Config.ABILITY.FEATHER_DANCE_NEAR_MISS_BONUS * danceLv : 0
 
-    if (minDist < Config.EXP.NEAR_MISS_DISTANCE + danceBonus && minDist > 0) {
+    // [v1.4.0] 缩小射线 Lv5 质变：间隙封顶 Lv4，改擦边判定窗口 +10px
+    const shrinkLv = this.abilitySystem.owned.get('shrink_ray') || 0
+    const shrinkBonus = shrinkLv >= 5 ? Config.ABILITY.SHRINK_RAY_L5_NEAR_MISS_BONUS : 0
+
+    // [v1.4.0] 幻影舞步：黄金窗（90帧）内擦边判定 ×2、经验 ×(2+lv)；
+    // 硬规则：窗内擦边只刷新窗口、不叠加倍率（防指数回路）；窗口期金色残影在 update() 生成
+    const phantomLv = this.abilitySystem.owned.get('phantom_edge') || 0
+    const phantomActive = phantomLv > 0 && this.abilitySystem.phantomWindowFrames > 0
+
+    let windowSize = Config.EXP.NEAR_MISS_DISTANCE + danceBonus + shrinkBonus
+    if (phantomActive) windowSize *= 2
+
+    if (minDist < windowSize && minDist > 0) {
       pipe.nearMissTriggered = true  // [v1.1.5] 防止同一管道重复触发
       const stats = this.abilitySystem.getStats()
-      this._gainExp(Config.EXP.NEAR_MISS_EXP, 'near_miss', stats)
+      // 幻影舞步：窗内擦边经验 ×(2+lv)（独立乘区，走统一 _gainExp 保持共鸣/银行/顿悟链路）
+      this._gainExp(Config.EXP.NEAR_MISS_EXP, 'near_miss', stats, phantomActive ? (2 + phantomLv) : 1)
+      if (phantomLv > 0) {
+        this.abilitySystem.phantomWindowFrames = Config.ABILITY.PHANTOM_WINDOW_FRAMES  // 只刷新不叠加
+      }
       this.score += Config.EXP.SCORE_NEAR_MISS
       if (this.onScoreChange) this.onScoreChange(this.score)
 
@@ -1333,7 +1528,8 @@ class Game {
   }
 
   // [v1.1.4] 统一经验获取方法——所有经验来源都通过此方法，确保经验共鸣对所有经验生效
-  _gainExp(baseExp, source, stats) {
+  // [v1.4.0] extraMult：幻影舞步黄金窗等来源的独立乘区（默认 1，不影响存量调用）
+  _gainExp(baseExp, source, stats, extraMult) {
     let exp = baseExp
     let doubled = false
 
@@ -1343,7 +1539,7 @@ class Game {
       doubled = true
     }
 
-    const multiplied = this.expSystem.addExp(exp, stats.expMultiplier)
+    const multiplied = this.expSystem.addExp(exp, stats.expMultiplier * (extraMult || 1))
 
     // 浮动文字——堆叠不重叠
     const text = doubled ? `+${exp} EXP x2!` : `+${exp} EXP`
@@ -1416,6 +1612,15 @@ class Game {
       }
       case 'missile': {
         // [v1.3.0] 导弹：拾取即发射（弱追踪，怪物优先）
+        // [v1.4.0] 导弹风暴：拾取改 (4+lv)s 连发（每秒2枚，AbilitySystem 计时 fx 节拍）；
+        // 期间再拾取刷新时长（不叠加）；连发期间道具权重不变（防自喂养回路）
+        const stormLv = this.abilitySystem.owned.get('missile_storm') || 0
+        if (stormLv > 0) {
+          this.abilitySystem.missileStormFrames =
+            (Config.MISSILE.STORM_BASE_SEC + Config.MISSILE.STORM_SEC_PER_LV * stormLv) * 60
+          this.abilitySystem._missileStormTick = 0
+          this._addFloatingText(this.bird.x, this.bird.y - 42, '导弹风暴!', '#e67e22', 55)
+        }
         this._fireMissile()
         break
       }
@@ -1448,11 +1653,14 @@ class Game {
   // ==================== 碰撞处理 [v1.1.0] HP系统 ====================
 
   /**
-   * 碰撞事件处理：无敌 > 时间扭曲 > 统一护盾(弹力护盾优先) > 扣血 > 凤凰 > 死亡
+   * 碰撞事件处理：无敌 > 时间扭曲 > 羽盾 > 统一护盾(弹力护盾优先) > 扣血(临时HP优先) > 凤凰 > 死亡
    * [v1.1.5] 统一护盾系统：shieldLayers > 0时消耗一层，
    *           若拥有弹力护盾则弹开，否则仅抵挡。
    * [v1.4.0] §2.6 受击链新节点：铁喙（怪物碰撞的无敌帧反杀分支，最前置，仅怪物）；
+   *           羽盾（回响之翼/铁羽，最前置防御节点，破盾给无敌帧）；
    *           镜面护盾（护盾层消耗时冲击波，挂在 consumeShield 内）；
+   *           超载神盾（临时HP先于HP扣减，挂在 takeDamage 内）；
+   *           血契（maxHp 修正，挂在 _recalcMaxHp）；
    *           求生本能（HP 扣减后补盾，挂在 takeDamage 内，凤凰之前）
    * @param {Object} [pipe] - 碰撞的管道/怪物对象（用于判断弹开方向），地面/天花板碰撞时不传
    * @returns {boolean} true=游戏结束, false=继续
@@ -1485,6 +1693,15 @@ class Game {
     if (this.abilitySystem.timeWarpActive > 0) {
       Logger.debug('Collision', '时间扭曲中，忽略碰撞')
       this.bird.invincibleBlink = 20
+      return false
+    }
+
+    // [v1.4.0] 羽盾（回响之翼/铁羽）：§2.6 受击链最前置防御节点——挡 1 次伤害；
+    // 铁羽：破羽盾给 30 帧/级无敌（consumeFeatherShield 内结算）；消耗断连击（N1 同语义）
+    if (this.abilitySystem.consumeFeatherShield()) {
+      this.bird.invincibleBlink = 20
+      this.shakeFrames = 4
+      this.shakeIntensity = 2
       return false
     }
 
@@ -1581,7 +1798,19 @@ class Game {
           return
         }
 
-        if (this.abilitySystem.tryTimeWarp()) return
+        if (this.abilitySystem.tryTimeWarp()) {
+          // [v1.4.0] 时之晶：寄生时间扭曲同一触发点（同 CD 同源，不独立计时器——规避 N4 遮蔽的正确姿势），
+          // 冻结怪物/弹幕 (1+0.5(lv-1))s，鸟可动；未持时间扭曲时本卡无效（选牌 UI 灰显）
+          const tcLv = this.abilitySystem.owned.get('time_crystal') || 0
+          if (tcLv > 0) {
+            this.abilitySystem.timeCrystalFreezeFrames = Math.round(
+              (Config.ABILITY.TIME_CRYSTAL_BASE_SEC +
+                Config.ABILITY.TIME_CRYSTAL_PER_LV_SEC * (tcLv - 1)) * 60)
+            this._addFloatingText(this.bird.x, this.bird.y - 40, '时之晶·冻结!', '#aee6ff', 50)
+            Logger.info('Ability', '时之晶冻结触发', { lv: tcLv, frames: this.abilitySystem.timeCrystalFreezeFrames })
+          }
+          return
+        }
       }
     }
   }
@@ -2212,10 +2441,12 @@ class Game {
     }
 
     // ----- [v1.2.0] 凤凰印记计数 -----
+    // [v1.4.0] 心形区宽度含临时HP（空心心形），凤凰/羽盾标记顺延避免重叠
+    const heartsW = (this.abilitySystem.maxHp + (this.abilitySystem.tempHp || 0)) * (HP.HEART_SIZE + HP.HEART_GAP)
     const phoenixLv = this.abilitySystem.owned.get('phoenix') || 0
     if (phoenixLv > 0) {
       const remaining = phoenixLv - this.abilitySystem.phoenixUsed
-      const phoenixX = 14 + this.abilitySystem.maxHp * (HP.HEART_SIZE + HP.HEART_GAP)
+      const phoenixX = 14 + heartsW
       const phoenixY = topY + 14
       ctx.font = '14px sans-serif'
       ctx.textAlign = 'left'
@@ -2224,6 +2455,39 @@ class Game {
       ctx.font = 'bold 11px monospace'
       ctx.fillStyle = remaining > 0 ? '#ff6600' : '#666666'
       ctx.fillText(`×${remaining}`, phoenixX + 16, phoenixY)
+    }
+
+    // ----- [v1.4.0] 羽盾图标（回响之翼/铁羽）：心形区右侧羽毛+层数 -----
+    const echoLv = this.abilitySystem.owned.get('echo_wing') || 0
+    if (echoLv > 0) {
+      const featherX = 14 + heartsW + (phoenixLv > 0 ? 44 : 0)
+      const featherY = topY + 14
+      ctx.font = '14px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('🪶', featherX, featherY)
+      ctx.font = 'bold 11px monospace'
+      ctx.fillStyle = this.abilitySystem.featherShields > 0 ? '#fff2c8' : '#666666'
+      ctx.fillText(`×${this.abilitySystem.featherShields}`, featherX + 16, featherY)
+      // 攒盾进度（过管计数/阈值）
+      const need = Config.ABILITY.ECHO_WING_BASE_PIPES - Config.ABILITY.ECHO_WING_PIPES_REDUCTION * (echoLv - 1)
+      ctx.fillStyle = '#aaaaaa'
+      ctx.font = 'bold 9px monospace'
+      ctx.fillText(`${this.abilitySystem.echoWingPipes}/${need}`, featherX + 16, featherY + 12)
+    }
+
+    // ----- [v1.4.0] 风暴驯化标记（已驯化天气徽章，无天气活跃时也常驻可见）-----
+    if (this.weatherSystem.tamedWeather) {
+      const tamed = this.weatherSystem.tamedWeather
+      const tamedIcons = { wind: '💨', rain: '🌧️', hail: '🧊' }
+      const tamedX = this.screenW / 2
+      const hasWeatherRow = weatherInfo.length > 0
+      const tamedY = hasWeatherRow ? barY + barH + 48 : barY + barH + 26
+      ctx.font = 'bold 10px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#7fff7f'
+      ctx.fillText(`🌈已驯化${tamedIcons[tamed] || ''}`, tamedX, tamedY)
     }
 
     // ----- 能力图标栏（底部安全区）-----
@@ -2261,6 +2525,7 @@ class Game {
   }
 
   // [v1.1.1] HP 心形渲染——贝塞尔曲线心形，更大更清晰
+  // [v1.4.0] 超载神盾：临时HP 以空心心形接在普通心形之后（视觉必须区分：空心 vs 实心）
   _drawHPHearts(x, y, size, gap) {
     const ctx = this.ctx
     const maxHp = this.abilitySystem.maxHp
@@ -2297,6 +2562,26 @@ class Game {
         ctx.arc(cx - s * 0.3, cy - s * 0.3, s * 0.2, 0, Math.PI * 2)
         ctx.fill()
       }
+    }
+
+    // [v1.4.0] 临时HP：空心心形（粉色描边+透明填充），与普通HP视觉区分
+    const tempHp = this.abilitySystem.tempHp || 0
+    for (let i = 0; i < tempHp; i++) {
+      const cx = x + (maxHp + i) * (size + gap) + size / 2
+      const cy = y
+      const s = size / 2
+
+      ctx.beginPath()
+      ctx.moveTo(cx, cy + s * 0.7)
+      ctx.bezierCurveTo(cx - s * 1.1, cy - s * 0.2, cx - s * 0.9, cy - s * 0.9, cx, cy - s * 0.2)
+      ctx.bezierCurveTo(cx + s * 0.9, cy - s * 0.9, cx + s * 1.1, cy - s * 0.2, cx, cy + s * 0.7)
+      ctx.closePath()
+
+      ctx.fillStyle = 'rgba(255, 154, 160, 0.12)'
+      ctx.fill()
+      ctx.strokeStyle = '#ff9aa0'
+      ctx.lineWidth = 2
+      ctx.stroke()
     }
   }
 
@@ -2427,12 +2712,47 @@ class Game {
       const thisCardY = cardY + row * (cardH + rowGap)
 
       this._cardBounds.push({ x: cardX, y: thisCardY, w: cardW, h: cardH, id: ab.id })
-      this._drawCard(cardX, thisCardY, cardW, cardH, ab, currentLevel)
+      // [v1.4.0] 批次2选牌 UI：灰显（缺前置卡）/ 先知协同标注 / 已驯化互斥标记
+      this._drawCard(cardX, thisCardY, cardW, cardH, ab, currentLevel, {
+        greyReason: this._getCardGreyReason(ab.id),
+        tag: (this.abilitySystem.owned.get('oracle') || 0) > 0
+          ? this.abilitySystem.getSynergyTag(ab.id, this.weatherSystem.tamedWeather) : null,
+        tamedMarked: this._isCardTamedMutex(ab.id)
+      })
     }
   }
 
-  _drawCard(x, y, w, h, def, currentLevel) {
+  /**
+   * [v1.4.0] 选牌灰显：缺前置卡的能力灰显提示（仍可点选，只是无效——保住构筑主权）
+   * 铁羽需回响之翼（无则羽盾来源不存在）；时之晶需时间扭曲（寄生同一触发点，无则无触发位）
+   * @returns {string|null} 灰显原因
+   */
+  _getCardGreyReason(id) {
+    if (id === 'iron_feather' && !(this.abilitySystem.owned.get('echo_wing') > 0)) {
+      return '需回响之翼'
+    }
+    if (id === 'time_crystal' && !(this.abilitySystem.owned.get('time_warp') > 0)) {
+      return '需时间扭曲'
+    }
+    return null
+  }
+
+  /**
+   * [v1.4.0] 风暴驯化互斥（D7）：已驯化天气对应的作废卡加"已驯化"标记（冰晶/顺风耳/雨衣）
+   */
+  _isCardTamedMutex(id) {
+    const tamed = this.weatherSystem.tamedWeather
+    if (!tamed) return false
+    const mutex = Config.ABILITY.TAMED_MUTEX[tamed]
+    return !!mutex && mutex.indexOf(id) >= 0
+  }
+
+  _drawCard(x, y, w, h, def, currentLevel, extras) {
     const ctx = this.ctx
+    // [v1.4.0] extras：{ greyReason, tag, tamedMarked }（批次2选牌 UI）
+    const greyReason = extras && extras.greyReason
+    const tag = extras && extras.tag
+    const tamedMarked = extras && extras.tamedMarked
 
     // [v1.1.3] 稀有度颜色
     const rarityColors = {
@@ -2452,6 +2772,9 @@ class Game {
     ctx.lineWidth = 3
     this._roundRect(x, y, w, h, 8)
     ctx.stroke()
+
+    // [v1.4.0] 灰显：缺前置卡的整卡内容降透明度（边框保留稀有度色）
+    if (greyReason) ctx.globalAlpha = 0.45
 
     const cx = x + w / 2
 
@@ -2478,10 +2801,17 @@ class Game {
     ctx.fillStyle = rarity.labelColor
     ctx.fillText(`[${rarity.label}]`, cx, y + 103)
 
+    // [v1.4.0] 先知协同标注（⭐核心/🔗协同/⚠️反协同），与分类标签同行
     const catNames = { passive: '被动', active: '主动', special: '特殊' }
+    const tagText = tag === 'core' ? ' ⭐核心' : tag === 'synergy' ? ' 🔗协同' : tag === 'anti' ? ' ⚠️反协同' : ''
+    const tagColor = tag === 'core' ? '#ffd700' : tag === 'synergy' ? '#2ecc71' : tag === 'anti' ? '#ff6b6b' : '#888888'
     ctx.font = '10px monospace'
     ctx.fillStyle = '#888888'
     ctx.fillText(`[${catNames[def.category] || ''}]`, cx, y + 116)
+    if (tagText) {
+      ctx.fillStyle = tagColor
+      ctx.fillText(tagText, cx + 18, y + 116)
+    }
 
     ctx.font = '11px monospace'
     ctx.fillStyle = '#cccccc'
@@ -2489,6 +2819,23 @@ class Game {
     ctx.textBaseline = 'top'
     const effectText = def.effectText(nextLevel)
     this._wrapText(effectText, x + 8, y + 130, w - 16, 15)
+
+    // [v1.4.0] 灰显原因（底部）与驯化互斥标记（右上角）
+    if (greyReason) {
+      ctx.globalAlpha = 1
+      ctx.font = 'bold 10px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#ff6b6b'
+      ctx.fillText(greyReason, cx, y + h - 10)
+    }
+    if (tamedMarked) {
+      ctx.font = 'bold 9px monospace'
+      ctx.textAlign = 'right'
+      ctx.textBaseline = 'top'
+      ctx.fillStyle = '#7fff7f'
+      ctx.fillText('已驯化', x + w - 6, y + 6)
+    }
 
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'

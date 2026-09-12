@@ -47,17 +47,25 @@ class WindEffect extends WeatherEffect {
     const windRiderLv = gameCtx.abilities.owned.get('wind_rider') || 0
 
     let force = rawForce
-    if (windReaderLv > 0) {
-      force *= (1 - 0.3 * windReaderLv)
-    }
-    if (windRiderLv > 0) {
-      // 御风者：翻转方向并增强
-      force = -force * (1 + 0.5 * windRiderLv)
-    }
-
-    // [v1.4.0] 定风珠：免疫期风力归零；只免疫负面部分——御风者翻转后的助推（增益）保留
-    if (windRiderLv === 0 && this.isDebuffImmune(gameCtx)) {
-      force = 0
+    // [v1.4.0] 风暴驯化：风→50% 助推（恒有利方向=-rawForce 方向，与御风者翻转方向一致）；
+    // 驯化后风是纯资产，不再吃顺风耳/御风者/定风珠/风暴之眼修饰
+    if (this.isTamed(gameCtx)) {
+      force = -Math.abs(rawForce) * Config.WEATHER.TAMED_WIND_BOOST_FACTOR
+    } else {
+      if (windReaderLv > 0) {
+        force *= (1 - 0.3 * windReaderLv)
+      }
+      if (windRiderLv > 0) {
+        // 御风者：翻转方向并增强
+        force = -force * (1 + 0.5 * windRiderLv)
+      } else {
+        // [v1.4.0] 风暴之眼：并发≥2 时 debuff 缩放（御风者翻转后是增益，不缩）
+        force *= this.getDebuffScale(gameCtx)
+        // [v1.4.0] 定风珠：免疫期风力归零；只免疫负面部分——御风者翻转后的助推（增益）保留
+        if (this.isDebuffImmune(gameCtx)) {
+          force = 0
+        }
+      }
     }
 
     this.currentForce = force
@@ -145,8 +153,10 @@ class WindEffect extends WeatherEffect {
       const arrowLen = 12 + intensity * 8
 
       // [v1.2.2] N2 御风者会翻转风力方向，箭头按"有效受力方向"绘制（同步翻转）
+      // [v1.4.0] 风暴驯化：驯化风恒为助推，箭头同样按助推方向绘制
       const windRiderLv = (gameCtx.abilities && gameCtx.abilities.owned.get('wind_rider')) || 0
-      const arrowDir = windRiderLv > 0 ? -this.direction : this.direction
+      const boosted = windRiderLv > 0 || this.isTamed(gameCtx)
+      const arrowDir = boosted ? -this.direction : this.direction
 
       ctx.save()
       ctx.translate(bx, by)

@@ -47,6 +47,9 @@ class WeatherSystem {
     this.checkTimer = 0             // 检查计时器
     this.rainResidual = null        // 雨效果结束后残留（继续干燥）
     this._rainHintShown = false     // [v1.2.1] "拍翅甩水!"教学提示只显示一次
+    // [v1.4.0] 风暴驯化（chaos_dice）：获得时驯化当前天气；无天气则 tamedPending 等下一种
+    this.tamedWeather = null        // 已驯化天气类型 'wind'|'rain'|'hail'|null
+    this.tamedPending = false       // 获得时无天气活跃 → 下一次触发时驯化
     for (const t of ALL_TYPES) {
       this.effectCooldowns[t] = 0
     }
@@ -97,9 +100,14 @@ class WeatherSystem {
       this.rainResidual.dry(Config.WEATHER.RAIN.DRY_RATE)
       // [v1.2.1] 干燥期间按当前rainLevel比例回写重力修饰，雨停后重力平滑归零
       // [v1.4.0] 定风珠：雨结束免疫期内不回写重力 debuff（免疫判定在 debuff 应用点）
-      if (!(gameCtx.abilities && gameCtx.abilities.weatherImmuneUntil > gameCtx.gameTime)) {
+      // [v1.4.0] 风暴驯化：雨已驯化 → 积水永不加重力（残留期同样豁免）
+      // [v1.4.0] 风暴之眼：并发≥2 时残留重力按 debuff 缩放（防御性兼容无此方法的 mock）
+      const tamedRain = this.tamedWeather === 'rain'
+      const ab = gameCtx.abilities
+      const eyeScale = (ab && typeof ab.getWeatherDebuffScale === 'function') ? ab.getWeatherDebuffScale() : 1
+      if (!tamedRain && !(ab && ab.weatherImmuneUntil > gameCtx.gameTime)) {
         gameCtx.gravityModifier +=
-          (this.rainResidual.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
+          (this.rainResidual.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS * eyeScale
       }
       if (this.rainResidual.rainLevel <= 0 && this.rainResidual.splashParticles.length === 0) {
         this.rainResidual = null
@@ -168,6 +176,18 @@ class WeatherSystem {
 
     // [v1.4.0] 定风珠：天气开始时写免疫时间戳
     this._writeCharmImmunity(gameCtx)
+
+    // [v1.4.0] 风暴驯化：获得时无天气活跃（tamedPending）→ 本次触发即被驯化（命运感，不给挑）
+    if (this.tamedPending && !this.tamedWeather) {
+      this.tamedPending = false
+      this.tamedWeather = type
+      Logger.info('Weather', '风暴驯化生效(延迟)', { type: type })
+      if (gameCtx.addFloatingText) {
+        const tamedNames = { wind: '风', rain: '雨', hail: '冰雹' }
+        gameCtx.addFloatingText(gameCtx.screenW / 2, gameCtx.screenH * 0.3 + 26,
+          `风暴驯化：${tamedNames[type] || type}!`, '#7fff7f', 90)
+      }
+    }
 
     Logger.info('Weather', '环境效果触发', {
       type: type,

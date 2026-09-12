@@ -38,16 +38,20 @@ class RainEffect extends WeatherEffect {
   update(gameCtx) {
     super.update(gameCtx)
 
+    // [v1.4.0] 风暴驯化：雨→积水不加重力（轻盈）；rainLevel 照常积累（视觉/甩水保留）
     // [v1.4.0] 定风珠：免疫期不积累雨水、不加重力（免疫判定在 debuff 应用点）
+    const tamed = this.isTamed(gameCtx)
     if (!this.isDebuffImmune(gameCtx)) {
       // 雨水积累
       const raincoatLv = gameCtx.abilities.owned.get('raincoat') || 0
       const accumRate = Config.WEATHER.RAIN.ACCUMULATION_RATE * (1 - 0.4 * raincoatLv)
       this.rainLevel = Math.min(100, this.rainLevel + accumRate)
 
-      // 重力增加
-      const gravityBonus = (this.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
-      gameCtx.gravityModifier += gravityBonus
+      // 重力增加（驯化雨豁免；风暴之眼并发≥2 时按 debuff 缩放）
+      if (!tamed) {
+        const gravityBonus = (this.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
+        gameCtx.gravityModifier += gravityBonus * this.getDebuffScale(gameCtx)
+      }
     }
 
     // 生成雨滴粒子

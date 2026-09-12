@@ -103,6 +103,26 @@ class WeatherEffect {
     return !!(gameCtx && gameCtx.abilities &&
       gameCtx.abilities.weatherImmuneUntil > gameCtx.gameTime)
   }
+
+  /**
+   * [v1.4.0] 风暴驯化（chaos_dice）：本效果是否已被驯化
+   * （tamed 状态存在 WeatherSystem 上，由 gameCtx.weather 传入；防御性兼容无该字段的 mock）
+   * @param {Object} gameCtx
+   * @returns {boolean}
+   */
+  isTamed(gameCtx) {
+    return !!(gameCtx && gameCtx.weather && gameCtx.weather.tamedWeather === this.type)
+  }
+
+  /**
+   * [v1.4.0] 风暴之眼（eye_of_storm）：天气 debuff 缩放（并发≥2 时 -20%/级；只减 debuff 不减增益）
+   * @param {Object} gameCtx
+   * @returns {number} 0~1
+   */
+  getDebuffScale(gameCtx) {
+    const ab = gameCtx && gameCtx.abilities
+    return (ab && typeof ab.getWeatherDebuffScale === 'function') ? ab.getWeatherDebuffScale() : 1
+  }
 }
 
 module.exports = WeatherEffect

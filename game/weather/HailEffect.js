@@ -37,9 +37,11 @@ class HailEffect extends WeatherEffect {
     super.update(gameCtx)
 
     // 生成冰雹（sin曲线密度）
+    // [v1.4.0] 风暴之眼：并发≥2 时生成间隔按 debuff 缩放倒数放大（密度降低，伤害不可缩放故降频率）
+    const scale = this.getDebuffScale(gameCtx)
     this.spawnTimer++
     const interval = Math.max(
-      Config.WEATHER.HAIL.SPAWN_INTERVAL_PEAK / Math.max(0.1, this.sinIntensity),
+      Config.WEATHER.HAIL.SPAWN_INTERVAL_PEAK / Math.max(0.1, this.sinIntensity) / Math.max(0.2, scale),
       5
     )
     if (this.spawnTimer >= interval) {
@@ -96,6 +98,9 @@ class HailEffect extends WeatherEffect {
   /**
    * 处理冰雹碰撞
    * [v1.2.1] 碰撞优先级（与文档对齐，决策D5/D8）：冰晶护体 > 统一护盾 > HP扣血
+   * [v1.4.0] §2.6 新节点：驯化冰雹（不伤人，10%掉exp）与羽盾（最前置）插入；
+   *          冰雹链实际顺序：定风珠免疫 → 驯化 → 羽盾 → 冰晶护体（D8 裁定优先于 §2.6 表内位置，
+   *          冰晶转化是冰雹特有的资源化路径，保持"冰雹变护盾"玩家友好语义）→ 统一护盾 → HP → 凤凰
    */
   _handleHailCollision(hailstone, gameCtx) {
     const abilities = gameCtx.abilities
@@ -103,6 +108,24 @@ class HailEffect extends WeatherEffect {
     // [v1.4.0] 定风珠：免疫期冰雹不造成伤害（视觉碎裂保留，免疫判定在 debuff 应用点）
     if (this.isDebuffImmune(gameCtx)) {
       this._addCrackEffect(hailstone.x, hailstone.y, '#ffffff')
+      return
+    }
+
+    // [v1.4.0] 风暴驯化：冰雹→10% 概率掉 exp、不伤人（冰晶护体同时作废，D7 互斥标记）
+    if (this.isTamed(gameCtx)) {
+      this._addCrackEffect(hailstone.x, hailstone.y, '#b8ff9e')
+      if (Math.random() < Config.WEATHER.TAMED_HAIL_EXP_CHANCE &&
+          typeof gameCtx.gainExp === 'function') {
+        gameCtx.gainExp(Config.WEATHER.TAMED_HAIL_EXP_AMOUNT, 'tamed_hail')
+        gameCtx.addFloatingText(hailstone.x, hailstone.y - 20, `+${Config.WEATHER.TAMED_HAIL_EXP_AMOUNT} EXP`, '#b8ff9e', 35)
+      }
+      return
+    }
+
+    // [v1.4.0] 羽盾：受击链最前置防御节点（挡 1 次伤害；铁羽破盾给无敌帧）
+    if (typeof abilities.consumeFeatherShield === 'function' && abilities.consumeFeatherShield()) {
+      this._addCrackEffect(hailstone.x, hailstone.y, '#fff2c8')
+      gameCtx.addFloatingText(hailstone.x, hailstone.y - 20, '羽盾!', '#fff2c8', 30)
       return
     }
 
