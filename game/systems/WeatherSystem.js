@@ -50,8 +50,24 @@ class WeatherSystem {
     // [v1.4.0] 风暴驯化（chaos_dice）：获得时驯化当前天气；无天气则 tamedPending 等下一种
     this.tamedWeather = null        // 已驯化天气类型 'wind'|'rain'|'hail'|null
     this.tamedPending = false       // 获得时无天气活跃 → 下一次触发时驯化
+    this.frozen = false             // [v1.5.0] §4.7 Boss 战天气计时冻结开关（setFrozen）
     for (const t of ALL_TYPES) {
       this.effectCooldowns[t] = 0
+    }
+  }
+
+  /**
+   * [v1.5.0] §4.7 Boss 战天气冻结开关：true 时
+   *   ① 不触发新天气（不雨+弹幕双重惩罚）；② 活跃效果计时冻结、保持当前强度
+   *   （风暴之子/御风者等增益不中断——天气流补偿）；③ 雨残留暂停干燥。
+   * Boss 战结束（胜/败）解冻，从冻结点继续（不补偿性快进）。
+   * @param {boolean} f
+   */
+  setFrozen(f) {
+    f = !!f
+    if (this.frozen !== f) {
+      this.frozen = f
+      Logger.info('Weather', f ? 'Boss战天气冻结' : 'Boss战天气解冻', { active: this.activeEffects.map(e => e.type) })
     }
   }
 
@@ -61,6 +77,17 @@ class WeatherSystem {
    * @param {Object} gameCtx - 游戏上下文
    */
   update(gameTime, gameCtx) {
+    // [v1.5.0] §4.7 Boss 战天气冻结：不触发新天气、活跃效果保持当前强度（计时冻结）、
+    // 雨残留暂停干燥；效果照常 update（粒子/伤害判定不断），但 elapsed 回写冻结
+    if (this.frozen) {
+      for (const effect of this.activeEffects) {
+        const hold = effect.elapsed
+        effect.update(gameCtx)
+        effect.elapsed = hold
+      }
+      return
+    }
+
     // 1. 检查触发
     this.checkTimer++
     if (gameTime >= Config.WEATHER.START_TIME && this.checkTimer >= Config.WEATHER.CHECK_INTERVAL) {

@@ -135,9 +135,11 @@ class SpawnSystem {
     }
 
     // [v1.1.1] 随机道具刷新（独立于管道通过；Boss 战期间照常，供补给）
+    // [v1.5.0] 道具率加成（狩猎祝福/战利品陈列，stats.itemSpawnBonus，缺省 0 零变化）
     this.itemSpawnTimer++
     if (this.itemSpawnTimer >= Config.ITEM.RANDOM_SPAWN_INTERVAL) {
-      if (Math.random() < Config.ITEM.RANDOM_SPAWN_CHANCE) {
+      const spawnChance = Config.ITEM.RANDOM_SPAWN_CHANCE + (this._deps.getStats().itemSpawnBonus || 0)
+      if (Math.random() < spawnChance) {
         this.spawnRandomItem()
       }
       this.itemSpawnTimer = 0
@@ -307,10 +309,14 @@ class SpawnSystem {
   /**
    * [v1.1.0] 过管道具掉落决策（25% 概率，小鸟前方生成）
    * 原 _onPipePass 内联块，随机数消耗顺序不变：chance → x 偏移 → y → 类型
+   * [v1.5.0] 道具率加成（狩猎祝福 +8pp/层、战利品陈列 +5pp/级/Boss，经 stats.itemSpawnBonus 注入；
+   * 缺省 0 零变化，随机消耗数不变——概率 roll 恒为 1 次）
    */
   maybeSpawnItemOnPipePass() {
     // [v1.1.0] 生成道具 [v1.1.3] 修复：在小鸟前方生成（右侧），不在后方（管道位置）
-    if (Math.random() < Config.ITEM.SPAWN_CHANCE) {
+    const stats = this._deps.getStats()
+    const chance = Config.ITEM.SPAWN_CHANCE + (stats.itemSpawnBonus || 0)
+    if (Math.random() < chance) {
       const itemX = this._deps.screenW + 20 + Math.random() * 40  // [v1.1.3] 前方生成
       const groundY = this._deps.screenH - Config.GROUND.HEIGHT
       const minY = Config.PIPE.MIN_TOP + 30
@@ -324,17 +330,21 @@ class SpawnSystem {
   /**
    * [v1.1.0] 道具类型权重随机
    * [v1.5.0] weightMults：按类型加权（精英必掉的导弹权重×2，§5.1）；缺省零变化
+   * [v1.5.0] §4.7 Boss 战期间导弹权重上调 20/125→40/145（=missile×2，与调用方加权叠乘，
+   *          如精英必掉期 ×2→×4）；bossActive=false 默认路径零变化
    * @param {Object} [weightMults] - { 类型: 倍率 }
    */
   rollItemType(weightMults) {
     const weights = Config.ITEM.TYPE_WEIGHTS
     const types = Object.keys(weights)
+    const bossMult = this._bossActive ? Config.BOSS.ITEM_MISSILE_WEIGHT_MULT : 1
+    const multOf = (t) => ((weightMults && weightMults[t]) || 1) * (t === 'missile' ? bossMult : 1)
     let total = 0
-    for (const t of types) total += weights[t] * ((weightMults && weightMults[t]) || 1)
+    for (const t of types) total += weights[t] * multOf(t)
 
     let r = Math.random() * total
     for (const t of types) {
-      r -= weights[t] * ((weightMults && weightMults[t]) || 1)
+      r -= weights[t] * multOf(t)
       if (r <= 0) return t
     }
     return types[0]
