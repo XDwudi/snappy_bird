@@ -1,6 +1,6 @@
 # STATE.md — 项目现状快照（唯一事实源）
 
-> 每次会话开始**先读本文件**。最近更新：2026-09-12 ｜ 当前版本：**v1.4.0**（git main，未打 tag 未推送）
+> 每次会话开始**先读本文件**。最近更新：2026-09-12 ｜ 当前版本：**v1.4.0**（git main，未打 tag 未推送）；v1.5.0 前置重构 SpawnSystem 拆分已完成（D18，行为零变化已验证）
 
 ## 产品一句话
 Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，纯 Canvas 渲染（非小程序），基础库 ≥2.25.0，AppID `wxf8eb7f1a872a483e`。
@@ -17,6 +17,7 @@ Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，
 | 导弹道具 | game/entities/Missile.js + ITEM.missile | ✅ v1.3.0 新增：拾取即发射/弱追踪/怪物优先/可炸管 |
 | 凤凰复活 | AbilitySystem + Game.js 内联动画 | ✅ 动画重但曝光率低 |
 | 日志 | systems/GameLogger.js | ✅ |
+| 生成系统（管道/道具/怪物生成决策：时机/位置/类型 roll/保底计时） | game/systems/SpawnSystem.js | ✅ v1.5.0 前置拆分（D18）：从 Game.js 迁出；预留 bossActive + setChapterModifiers 接口 |
 | 存档 | utils/Storage.js | ⚠️ 仅存最高分；金币/皮肤 API 悬空 |
 | 音效 | — | ❌ 未实现 |
 | 社交分享/排行榜 | — | ❌ 未实现（上线必需） |
@@ -24,7 +25,7 @@ Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，
 ## 已知问题（详见 docs/audits/审计_v1.2.0.md）
 - ~~P0 三项~~（水平风 1.5%、二段跳窗口、60s 难度停滞）→ **v1.2.1 已修**
 - ~~P1 已修~~：风暴之子/狂暴重力 debuff、雨停重力瞬变、冰晶护体满盾白扣 CD（优先级改文档对齐代码，D5/D8）、6 卡牌面板、天气太晚+无教学、无敌期整帧消失、rAF 无兜底 → **v1.2.1 已修**
-- **P1 遗留**：Game.js 2420 行 God Object 待拆分（审计 A3，单独排期）
+- **P1 遗留**：Game.js God Object 拆分进行中（审计 A3）：SpawnSystem 已拆出（v1.5.0 前置，D18，Game.js 3034→2902 行）；HudRenderer/EffectRenderer 待后续排期
 - **P2**：对象池缺失（冰雹场景压力点）；~~护盾抵挡不掉连击~~（v1.2.2 随 N1 修复）；结算无环境经历统计；新增天气需改 2 处硬编码映射；4 个 core 工具类零引用；Storage 金币/皮肤 API 悬空
 - ~~P2 凤凰文案不符~~、~~P2 README 过期~~ → **v1.2.1 已修**
 
@@ -47,11 +48,12 @@ Flappy Bird 手感 + Vampire Survivors 式 roguelike 成长的微信小游戏，
 - ~~**v1.2.3 热修复**~~ → 已完成（见上）
 - ~~**v1.3.0 障碍物系统与导弹**~~ → 已完成（见上）
 - ~~**v1.4.0 能力扩展包（代码）**~~ → 已完成（见上；§6.3 三项未达标待评审）
-- **v1.5.0 章节与 Boss**：6 张章节联动卡（池 55→61）+ 章节系统 + 双变体 Boss + 精英怪；**前置：A3 SpawnSystem 拆分**（方案 §7 明确不拆不做）；§6.3 后 4 项指标随此版本验收
+- **v1.5.0 章节与 Boss**：6 张章节联动卡（池 55→61）+ 章节系统 + 双变体 Boss + 精英怪；~~前置：A3 SpawnSystem 拆分~~ → **已完成**（D18：SpawnSystem.js 落地，预留 bossActive/setChapterModifiers 接口）；§6.3 后 4 项指标随此版本验收
 - 其他：音效系统 / 社交分享（上线必需）；Game.js 拆分（HudRenderer/EffectRenderer 优先）
 
 ## 关键索引
 - 调参总入口：`game/config/GameConfig.js`；能力数据：`game/config/AbilityConfig.js`（55 卡）
-- 主循环/状态机/渲染：`game/core/Game.js`（3000+ 行，勿全文重读，按方法名检索）
+- 主循环/状态机/渲染：`game/core/Game.js`（2902 行，勿全文重读，按方法名检索）
+- 生成决策（管道/道具/怪物）：`game/systems/SpawnSystem.js`（297 行；Game 经 onSpawn* 回调接线，bossActive/章节覆写接口已预留）
 - 完整设计：`docs/开发方案_v1.4.0.md`（r2 定稿）；历史版本方案同目录
 - 工作准则：`docs/handbook/开发手册.md`；产品规范：`项目规范.txt`
