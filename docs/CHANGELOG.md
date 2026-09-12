@@ -1,5 +1,15 @@
 # CHANGELOG — 版本历史
 
+## v1.5.0（进行中）
+> 章节与 Boss：方案 §4（章节制推进/转场/难度叠加制/Boss 变体制/大礼包）+ §5.1（精英怪）；迭代文档：docs/iterations/迭代_v1.5.0_章节与Boss.md
+> 当前进度：前置重构（SpawnSystem 拆分）✅ → 步骤 B 章节系统核心 + 精英怪 ✅ → 步骤 C Boss 本体（进行中）
+- refactor(前置): Game.js 拆出 systems/SpawnSystem.js（管道/道具/怪物的生成决策：时机/位置/类型roll/保底计时），Game 只保留 onSpawn* 接线；预留 setBossActive/setChapterModifiers 接口；行为逐帧等价（同 seed 输出逐字节一致，D18）
+- feat(步骤B·配置): GameConfig 新增 CHAPTERS 段（§4.2 视觉色值 + §4.4 难度修正同表管理）——Ch1 蓝天草地（现有 VISUAL 色值原样录入，修正全零=基准）/ Ch2 沙漠（橙黄天空 #f5c06a→#f7dfa0、太阳 #ffd93b+radial 光晕、沙丘 3 弧 #e0aa5e、热浪粒子 12、沙色地面 #e6c27a+沙纹 #d4a955、岩柱管道 #c98f3f；修正 速度+0.3/间隙-10/怪物距离400/HP×1/追踪1.3/精英25%）；Ch3 夜空/Ch4 雪原仅注释占位（v1.6.0）
+- feat(步骤B·章节核心): 新增 systems/ChapterSystem.js——章内过管计数 40 管触发 Boss + 150s 迟到兜底（§4.5；本步触发点为占位：日志+浮动文字"Boss 逼近！"，不置 bossActive 防软锁，Boss 本体步骤 C 接入）；转场演出 §4.3（白闪10帧→色带擦除60帧→标题卡90帧→恢复飞行60帧无敌），转场期间世界冻结（UPGRADING 同款语义）；章节切换时经 setChapterModifiers 注入生成修正，滚动速度/间隙加算走 Game._getScrollSpeed/_getGapSize 注入点（Ch1 +0 精确无差）；存量管道换色 30 帧 lerp（Pipe colorSet，新管直接给章色）；startBossFight()/endBossFight(win) 占位接口供步骤 C 调用
+- feat(步骤B·视觉/HUD): 背景/地面渲染按 CHAPTERS 参数切换（Ch1 渲染零变化）；Ch2 沙漠元素全 Canvas 几何体（frameCount 推导零随机源）；HUD 经验条下方章节进度 "Ch1 · 12/40"，≥35/40 金色脉冲（连击/天气/驯化行顺延）
+- feat(步骤B·精英怪 §5.1): Monster 加 elite flag（金边+体型×1.3+HP×3，移动参数不变）；SpawnSystem 生成处 roll（45s 保护期后每 60s 25% 升级下一只，章节概率可覆写；首次 roll 在 105s，此前零随机消耗）；击杀奖励=经验×5（10→50）+必掉 1 随机道具（导弹权重×2，与拾荒者独立）
+- 回归（步骤B）：临时专项断言 40/40 过（用后删除：40管触发/150s兜底/转场160帧冻结 gameTime+小鸟+管道/Ch2 修正 速度+0.3·间隙-10·怪物距离400·60帧无敌/精英概率与HP×3与体型×1.3与移动不变/精英经验×5+必掉/HUD脉冲/Ch2渲染冒烟）；四模拟器回归——gameplay_sim 中位生存 64.9s 不变（P25/P75 不变，<105s 局逐字节一致，>105s 长命局因精英 roll 按设计分叉，均值 69.7→69.4）；builds_v140 三项 FAIL（①2.4倍/③49.7s/④18.3s）均为 v1.4.0 §8 已知残差、无新增 FAIL，⑥随机基线 64.9s≥红线60.5 ✅；builds_sim/weather_sim 通过
+
 ## v1.4.0（2026-09-12）
 > 能力扩展包：方案 §2 的 27 张非章节卡分两批落地（批次1 common×6 + uncommon×7，批次2 rare×8 + epic×6），卡池 28→55；含 §2.5 旧卡满级质变补丁 + §2.6 受击/触发优先级表落地 + 先知标签表 + 经验银行 HUD
 > 设计依据：docs/开发方案_v1.4.0.md §2/§2.5/§2.6（r2 定稿）；迭代文档：docs/iterations/迭代_v1.4.0_能力扩展包.md
