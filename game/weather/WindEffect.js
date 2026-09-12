@@ -55,6 +55,11 @@ class WindEffect extends WeatherEffect {
       force = -force * (1 + 0.5 * windRiderLv)
     }
 
+    // [v1.4.0] 定风珠：免疫期风力归零；只免疫负面部分——御风者翻转后的助推（增益）保留
+    if (windRiderLv === 0 && this.isDebuffImmune(gameCtx)) {
+      force = 0
+    }
+
     this.currentForce = force
 
     // 应用风力

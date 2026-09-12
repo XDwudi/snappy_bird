@@ -80,6 +80,9 @@ class WeatherSystem {
 
         this.effectCooldowns[effect.type] = Config.WEATHER.EFFECT_COOLDOWN
         this.activeEffects.splice(i, 1)
+
+        // [v1.4.0] 定风珠：天气结束时写免疫时间戳（过渡保护）
+        this._writeCharmImmunity(gameCtx)
       }
     }
 
@@ -93,12 +96,30 @@ class WeatherSystem {
     if (this.rainResidual) {
       this.rainResidual.dry(Config.WEATHER.RAIN.DRY_RATE)
       // [v1.2.1] 干燥期间按当前rainLevel比例回写重力修饰，雨停后重力平滑归零
-      gameCtx.gravityModifier +=
-        (this.rainResidual.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
+      // [v1.4.0] 定风珠：雨结束免疫期内不回写重力 debuff（免疫判定在 debuff 应用点）
+      if (!(gameCtx.abilities && gameCtx.abilities.weatherImmuneUntil > gameCtx.gameTime)) {
+        gameCtx.gravityModifier +=
+          (this.rainResidual.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
+      }
       if (this.rainResidual.rainLevel <= 0 && this.rainResidual.splashParticles.length === 0) {
         this.rainResidual = null
       }
     }
+  }
+
+  /**
+   * [v1.4.0] 定风珠：天气开始/结束时写 debuff 免疫时间戳（(3+3*lv)s）
+   * 只免疫负面部分（御风者等增益保留在各效果的应用点判断），兼容无 owned 的 mock
+   * @param {Object} gameCtx
+   */
+  _writeCharmImmunity(gameCtx) {
+    const abilities = gameCtx.abilities
+    if (!abilities || !abilities.owned) return
+    const lv = abilities.owned.get('steady_charm') || 0
+    if (lv <= 0) return
+    abilities.weatherImmuneUntil = gameCtx.gameTime +
+      (Config.WEATHER.STEADY_CHARM_BASE_SEC + Config.WEATHER.STEADY_CHARM_PER_LV_SEC * lv) * 60
+    Logger.info('Weather', '定风珠免疫开启', { lv: lv, until: abilities.weatherImmuneUntil })
   }
 
   /**
@@ -144,6 +165,9 @@ class WeatherSystem {
     effect.onTrigger(gameCtx)
     this.activeEffects.push(effect)
     this.triggerCooldown = Config.WEATHER.TRIGGER_COOLDOWN
+
+    // [v1.4.0] 定风珠：天气开始时写免疫时间戳
+    this._writeCharmImmunity(gameCtx)
 
     Logger.info('Weather', '环境效果触发', {
       type: type,

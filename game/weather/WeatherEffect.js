@@ -91,6 +91,18 @@ class WeatherEffect {
   isExpired() {
     return this.elapsed >= this.duration
   }
+
+  /**
+   * [v1.4.0] 定风珠：当前是否处于天气 debuff 免疫期
+   * （免疫时间戳由 WeatherSystem 在触发/结束事件写入 gameCtx.abilities.weatherImmuneUntil）
+   * 防御性判断兼容无该字段的 mock（如 test_weather_sim）
+   * @param {Object} gameCtx
+   * @returns {boolean}
+   */
+  isDebuffImmune(gameCtx) {
+    return !!(gameCtx && gameCtx.abilities &&
+      gameCtx.abilities.weatherImmuneUntil > gameCtx.gameTime)
+  }
 }
 
 module.exports = WeatherEffect

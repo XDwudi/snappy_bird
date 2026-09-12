@@ -100,6 +100,12 @@ class HailEffect extends WeatherEffect {
   _handleHailCollision(hailstone, gameCtx) {
     const abilities = gameCtx.abilities
 
+    // [v1.4.0] 定风珠：免疫期冰雹不造成伤害（视觉碎裂保留，免疫判定在 debuff 应用点）
+    if (this.isDebuffImmune(gameCtx)) {
+      this._addCrackEffect(hailstone.x, hailstone.y, '#ffffff')
+      return
+    }
+
     // 冰晶护体：冰雹转为护盾
     // [v1.2.1] 护盾已满层时冰晶护体不触发也不进CD，走后续统一护盾链
     const iceCrystalLv = abilities.owned.get('ice_crystal') || 0

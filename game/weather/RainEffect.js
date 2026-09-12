@@ -38,14 +38,17 @@ class RainEffect extends WeatherEffect {
   update(gameCtx) {
     super.update(gameCtx)
 
-    // 雨水积累
-    const raincoatLv = gameCtx.abilities.owned.get('raincoat') || 0
-    const accumRate = Config.WEATHER.RAIN.ACCUMULATION_RATE * (1 - 0.4 * raincoatLv)
-    this.rainLevel = Math.min(100, this.rainLevel + accumRate)
+    // [v1.4.0] 定风珠：免疫期不积累雨水、不加重力（免疫判定在 debuff 应用点）
+    if (!this.isDebuffImmune(gameCtx)) {
+      // 雨水积累
+      const raincoatLv = gameCtx.abilities.owned.get('raincoat') || 0
+      const accumRate = Config.WEATHER.RAIN.ACCUMULATION_RATE * (1 - 0.4 * raincoatLv)
+      this.rainLevel = Math.min(100, this.rainLevel + accumRate)
 
-    // 重力增加
-    const gravityBonus = (this.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
-    gameCtx.gravityModifier += gravityBonus
+      // 重力增加
+      const gravityBonus = (this.rainLevel / 100) * Config.WEATHER.RAIN.MAX_GRAVITY_BONUS
+      gameCtx.gravityModifier += gravityBonus
+    }
 
     // 生成雨滴粒子
     this._dropTimer++
