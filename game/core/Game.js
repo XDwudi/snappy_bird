@@ -15,12 +15,16 @@
  *           升级面板跳过按钮(N6)、自愈/护盾/二段跳/风暴之子内联特效(N7)、磁吸锁定吸附(B1)、升级保护双保险(B2)。
  * [v1.2.3] 热修复：B2 延迟弹板安全区判定修复（P0：升级弹窗卡死不出现）+ 90帧保底超时强制弹板；
  *           移除 N6 跳过按钮（用户要求）。
+ * [v1.3.0] 新增：怪物系统（蝙蝠怪/浮游怪，Obstacle 基类扩展+HP/受击接口）、导弹道具（弱追踪，
+ *           怪物优先，可炸毁管道）；修复：管道生成从帧数制改为滚动距离制（减速期密度不变）。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
 const Config = require('../config/GameConfig.js')
 const Bird = require('../entities/Bird.js')
 const Pipe = require('../entities/Pipe.js')
+const Monster = require('../entities/Monster.js')   // [v1.3.0]
+const Missile = require('../entities/Missile.js')   // [v1.3.0]
 const Orb = require('../entities/Orb.js')
 const Item = require('../entities/Item.js')
 const ExpSystem = require('../systems/ExpSystem.js')
@@ -56,12 +60,14 @@ class Game {
     // 实体
     this.bird = null
     this.pipes = []
+    this.monsters = []            // [v1.3.0] 怪物列表（与 pipes 平行数组）
+    this.missiles = []            // [v1.3.0] 导弹列表
     this.orbs = []
     this.items = []               // [v1.1.0] 道具列表
     this.clouds = []
     this.nearMissEffects = []
     this.floatingTexts = []       // [v1.1.0] 浮动文字（道具拾取提示）
-    this.abilityEffects = []      // [v1.2.2] N7 能力内联特效粒子（自愈十字/护盾环/二段跳尾迹）
+    this.abilityEffects = []      // [v1.2.2] N7 能力内联特效粒子（自愈十字/护盾环/二段跳尾迹） [v1.3.0] 复用作爆炸粒子
 
     // 系统
     this.expSystem = new ExpSystem()
@@ -69,7 +75,8 @@ class Game {
     this.weatherSystem = new WeatherSystem()   // [v1.2.0] 环境系统
 
     // 计时器
-    this.spawnTimer = 0
+    this._distanceSinceSpawn = 0  // [v1.3.0] 距上次生成管道的累计滚动距离(px)，替代旧 spawnTimer(帧)
+    this._monsterDistance = 0     // [v1.3.0] 距上次生成怪物的累计滚动距离(px)
     this.gameTime = 0
     this.frameCount = 0
     this.survivalTimer = 0
@@ -148,12 +155,15 @@ class Game {
     this.state = Config.GAME.STATE.PLAYING
     this.score = 0
     this.gameTime = 0
-    this.spawnTimer = 0
+    this._distanceSinceSpawn = 0  // [v1.3.0]
+    this._monsterDistance = 0     // [v1.3.0]
     this.frameCount = 0
     this.survivalTimer = 0
     this.pipesPassed = 0
     this.itemSpawnTimer = 0       // [v1.1.1] 随机道具刷新计时器
     this.pipes = []
+    this.monsters = []            // [v1.3.0]
+    this.missiles = []            // [v1.3.0]
     this.orbs = []
     this.items = []
     this.nearMissEffects = []
@@ -203,6 +213,10 @@ class Game {
     this.state = Config.GAME.STATE.READY
     this.score = 0
     this.pipes = []
+    this.monsters = []            // [v1.3.0]
+    this.missiles = []            // [v1.3.0]
+    this._distanceSinceSpawn = 0  // [v1.3.0]
+    this._monsterDistance = 0     // [v1.3.0]
     this.orbs = []
     this.items = []
     this.nearMissEffects = []
@@ -394,12 +408,19 @@ class Game {
     // 小鸟物理
     this.bird.update()
 
-    // 生成管道
-    this.spawnTimer++
-    if (this.spawnTimer >= this._getSpawnInterval()) {  // [v1.2.2] N5 间隔随时间收紧
+    // 滚动速度（含能力修饰 + 速度包减速）——[v1.3.0] 提前计算，生成节奏改按滚动距离
+    const scrollSpeed = this._getScrollSpeed()
+
+    // [v1.3.0] 管道生成改为距离制：累计滚动距离达标才生成
+    // 修复减速 bug：速度包/时间扭曲只影响移动速度，不再改变管道空间密度
+    this._distanceSinceSpawn += scrollSpeed
+    if (this._distanceSinceSpawn >= this._getSpawnDistance()) {  // [v1.2.2] N5 距离随时间收紧
       this._spawnPipe()
-      this.spawnTimer = 0
+      this._distanceSinceSpawn = 0
     }
+
+    // [v1.3.0] 怪物生成（45s 新手保护后，同样按滚动距离节奏）
+    this._updateMonsterSpawn(scrollSpeed)
 
     // [v1.1.1] 随机道具刷新（独立于管道通过）
     this.itemSpawnTimer++
@@ -409,9 +430,6 @@ class Game {
       }
       this.itemSpawnTimer = 0
     }
-
-    // 滚动速度（含能力修饰 + 速度包减速）
-    const scrollSpeed = this._getScrollSpeed()
 
     // 主动技能预判
     this._checkActiveAbilities()
@@ -479,6 +497,12 @@ class Game {
       }
     }
 
+    // [v1.3.0] 怪物更新与碰撞（受击链与管道同级）
+    if (this._updateMonsters(scrollSpeed)) return
+
+    // [v1.3.0] 导弹更新与命中
+    this._updateMissiles(scrollSpeed)
+
     // 地面碰撞
     const groundY = this.screenH - Config.GROUND.HEIGHT
     if (this.bird.y + this.bird.collisionHeight / 2 >= groundY) {
@@ -540,14 +564,16 @@ class Game {
   }
 
   /**
-   * [v1.2.2] N5 管道生成间隔 ramp：120s起从90帧线性收紧，至300s达75帧下限
-   * @returns {number} 当前生成间隔（帧）
+   * [v1.3.0] 管道生成间隔改距离制：返回当前生成间隔（滚动像素）。
+   * [v1.2.2] N5 ramp 同步改距离版：120s起从270px线性收紧，至300s达240px下限。
+   * 与帧数制无关——减速期空间密度保持不变。
+   * @returns {number} 当前生成间隔（px）
    */
-  _getSpawnInterval() {
+  _getSpawnDistance() {
     const P = Config.PIPE
-    if (this.gameTime <= P.SPAWN_RAMP_START) return P.SPAWN_INTERVAL
+    if (this.gameTime <= P.SPAWN_RAMP_START) return P.SPAWN_DISTANCE
     const t = Math.min(1, (this.gameTime - P.SPAWN_RAMP_START) / P.SPAWN_RAMP_TIME)
-    return Math.round(P.SPAWN_INTERVAL + (P.SPAWN_INTERVAL_MIN - P.SPAWN_INTERVAL) * t)
+    return Math.round(P.SPAWN_DISTANCE + (P.SPAWN_DISTANCE_MIN - P.SPAWN_DISTANCE) * t)
   }
 
   _updateClouds() {
@@ -771,6 +797,249 @@ class Game {
     this.pipes.push(pipe)
   }
 
+  // ==================== [v1.3.0] 怪物系统 ====================
+
+  /**
+   * [v1.3.0] 怪物生成：45s 新手保护期后，按滚动距离节奏生成，同时最多 MAX_ALIVE 只
+   * @param {number} scrollSpeed - 当前滚动速度
+   */
+  _updateMonsterSpawn(scrollSpeed) {
+    const M = Config.MONSTER
+    if (this.gameTime < M.SPAWN_DELAY) return
+    if (this.monsters.length >= M.MAX_ALIVE) return
+    this._monsterDistance += scrollSpeed
+    if (this._monsterDistance < M.SPAWN_DISTANCE) return
+    this._monsterDistance = 0
+
+    const type = Math.random() < M.BAT_WEIGHT ? 'bat' : 'floater'
+    const groundY = this.screenH - Config.GROUND.HEIGHT
+    const y = this._pickMonsterY()
+    const monster = new Monster(this.screenW + 30, y, type, groundY)
+    this.monsters.push(monster)
+    Logger.info('Monster', '生成怪物', { type: type, x: monster.x, y: monster.y, gameTime: this.gameTime })
+  }
+
+  /**
+   * [v1.3.0] 选取怪物生成 y：避开前方管道间隙正中央（不堵死通路）。
+   * 随机尝试 SPAWN_Y_ATTEMPTS 次，取第一个与所有将至管道间隙中心
+   * 距离 >= SAFE_GAP_DIST 的候选；失败则用最后候选（概率极低）。
+   * @returns {number}
+   */
+  _pickMonsterY() {
+    const M = Config.MONSTER
+    const groundY = this.screenH - Config.GROUND.HEIGHT
+    const minY = Config.PIPE.MIN_TOP + M.MIN_Y_MARGIN
+    const maxY = groundY - M.MIN_Y_MARGIN
+    let y = (minY + maxY) / 2
+    for (let attempt = 0; attempt < M.SPAWN_Y_ATTEMPTS; attempt++) {
+      y = minY + Math.random() * (maxY - minY)
+      let safe = true
+      for (const pipe of this.pipes) {
+        // 只看即将到达小鸟的管道（屏幕右半部分之外的不参与避让）
+        if (pipe.x + pipe.width < this.screenW * 0.5) continue
+        const gapCenter = pipe.topHeight + pipe.gap / 2
+        if (Math.abs(y - gapCenter) < M.SAFE_GAP_DIST) { safe = false; break }
+      }
+      if (safe) break
+    }
+    return y
+  }
+
+  /**
+   * [v1.3.0] 怪物更新与小鸟碰撞（走 _handleCollision 统一受击链，与管道同级）
+   * @param {number} scrollSpeed - 当前滚动速度（减速对怪物同步生效）
+   * @returns {boolean} true=游戏结束
+   */
+  _updateMonsters(scrollSpeed) {
+    for (let i = this.monsters.length - 1; i >= 0; i--) {
+      const monster = this.monsters[i]
+      monster.update(scrollSpeed, this.bird)
+
+      if (monster.isOffscreen() || monster.hp <= 0) {
+        this.monsters.splice(i, 1)
+        continue
+      }
+
+      if (monster.checkCollision(this.bird)) {
+        if (this._handleCollision(monster)) return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * [v1.3.0] 怪物被击杀：爆炸粒子 + 击杀经验（浮动文字 +10）
+   */
+  _onMonsterKilled(monster) {
+    this._spawnExplosion(monster.x + monster.width / 2, monster.y, '255, 120, 40', 12)
+    const stats = this.abilitySystem.getStats()
+    this._gainExp(Config.MONSTER.KILL_EXP, 'monster_kill', stats)
+    Logger.info('Monster', '击杀怪物', { type: monster.monsterType, exp: Config.MONSTER.KILL_EXP })
+  }
+
+  // ==================== [v1.3.0] 导弹系统 ====================
+
+  /**
+   * [v1.3.0] 拾取导弹道具：从小鸟位置发射 1 枚导弹（拾取即触发）
+   */
+  _fireMissile() {
+    if (this.missiles.length >= Config.MISSILE.MAX_ALIVE) return
+    const target = this._pickMissileTarget()
+    const missile = new Missile(this.bird.x + this.bird.width / 2, this.bird.y, target)
+    this.missiles.push(missile)
+    this._addFloatingText(this.bird.x, this.bird.y - 30, '🚀 发射!', '#e67e22', 45)
+    Logger.info('Missile', '发射导弹', {
+      targetType: target ? target.type : 'none',
+      x: Math.round(this.bird.x),
+      y: Math.round(this.bird.y)
+    })
+  }
+
+  /**
+   * [v1.3.0] 导弹目标选择：存活怪物中最近者优先；无怪物选最近 destructible 管道；无目标直飞
+   * @returns {Object|null}
+   */
+  _pickMissileTarget() {
+    let best = null
+    let bestDist = Infinity
+
+    // 怪物优先（曼哈顿距离最近）
+    for (const m of this.monsters) {
+      if (m.hp <= 0) continue
+      const d = Math.abs(m.x - this.bird.x) + Math.abs(m.y - this.bird.y)
+      if (d < bestDist) { bestDist = d; best = m }
+    }
+    if (best) return best
+
+    // 无怪物：选小鸟前方最近的可破坏管道
+    bestDist = Infinity
+    for (const p of this.pipes) {
+      if (!p.destructible || p.hp <= 0) continue
+      if (p.x + p.width < this.bird.x) continue
+      const d = p.x - this.bird.x
+      if (d < bestDist) { bestDist = d; best = p }
+    }
+    return best
+  }
+
+  /**
+   * [v1.3.0] 导弹更新与命中处理（速度随世界缩放，减速同步生效）
+   * @param {number} scrollSpeed - 当前滚动速度
+   */
+  _updateMissiles(scrollSpeed) {
+    const speedFactor = scrollSpeed / Config.GAME.SCROLL_SPEED
+    for (let i = this.missiles.length - 1; i >= 0; i--) {
+      const missile = this.missiles[i]
+      missile.update(speedFactor)
+
+      if (missile.isOffscreen(this.screenW, this.screenH)) {
+        this.missiles.splice(i, 1)
+        continue
+      }
+
+      if (this._checkMissileHit(missile)) {
+        this.missiles.splice(i, 1)
+      }
+    }
+  }
+
+  /**
+   * [v1.3.0] 导弹命中检测：怪物优先，其次可破坏管道
+   * @param {Missile} missile
+   * @returns {boolean} true=命中（导弹销毁）
+   */
+  _checkMissileHit(missile) {
+    // 怪物优先
+    for (let i = this.monsters.length - 1; i >= 0; i--) {
+      const m = this.monsters[i]
+      if (m.hp <= 0) continue
+      if (missile.hitTest(m)) {
+        this._damageObstacle(m, Config.MISSILE.DAMAGE)
+        if (m.hp <= 0) {
+          this._onMonsterKilled(m)
+          this.monsters.splice(i, 1)
+        } else {
+          Logger.info('Missile', '命中怪物', { type: m.monsterType, hp: m.hp })
+        }
+        return true
+      }
+    }
+
+    // 可破坏管道
+    for (let i = this.pipes.length - 1; i >= 0; i--) {
+      const p = this.pipes[i]
+      if (!p.destructible || p.hp <= 0) continue
+      if (missile.hitTest(p)) {
+        this._damageObstacle(p, Config.MISSILE.DAMAGE)
+        if (p.hp <= 0) {
+          this._onPipeDestroyed(p)
+          this.pipes.splice(i, 1)
+        }
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * [v1.3.0] 障碍物受击 + 可选小半径 AoE（默认 AOE_RADIUS=0 不生效）
+   * @param {Obstacle} target - 直接命中的目标
+   * @param {number} damage - 伤害值
+   */
+  _damageObstacle(target, damage) {
+    target.takeDamage(damage)
+
+    const radius = Config.MISSILE.AOE_RADIUS
+    if (radius <= 0) return
+    // AoE：对爆炸点周围其他可破坏障碍物造成同等伤害（不连锁触发 AoE）
+    const tx = target.x + target.width / 2
+    const ty = target.type === 'monster' ? target.y : target.topHeight + target.gap / 2
+    for (const m of this.monsters) {
+      if (m === target || m.hp <= 0) continue
+      if (Math.abs(m.x + m.width / 2 - tx) <= radius && Math.abs(m.y - ty) <= radius) {
+        m.takeDamage(damage)
+      }
+    }
+  }
+
+  /**
+   * [v1.3.0] 管道被导弹炸毁：清除管道给通路 + 爆炸粒子 + 轻震屏
+   */
+  _onPipeDestroyed(pipe) {
+    const cx = pipe.x + pipe.width / 2
+    const cy = pipe.topHeight + pipe.gap / 2
+    this._spawnExplosion(cx, cy, '140, 220, 80', 14)
+    this.shakeFrames = Math.max(this.shakeFrames, 6)
+    this.shakeIntensity = 3
+    Logger.info('Missile', '炸毁管道', { x: Math.round(pipe.x), gapY: Math.round(cy) })
+  }
+
+  /**
+   * [v1.3.0] 爆炸粒子（复用 abilityEffects 粒子数组，总量设上限避免性能问题）
+   * @param {number} x - 爆炸中心X
+   * @param {number} y - 爆炸中心Y
+   * @param {string} color - 'r, g, b' 格式
+   * @param {number} count - 粒子数
+   */
+  _spawnExplosion(x, y, color, count) {
+    if (this.abilityEffects.length > 80) return  // 粒子上限保护
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4
+      const speed = 2 + Math.random() * 3
+      this.abilityEffects.push({
+        kind: 'dot',
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 24,
+        maxLife: 24,
+        size: 2.5 + Math.random() * 2.5,
+        color: color
+      })
+    }
+  }
+
   // [v1.1.1] 随机道具刷新（不依赖管道通过）
   _spawnRandomItem() {
     const groundY = this.screenH - Config.GROUND.HEIGHT
@@ -951,6 +1220,11 @@ class Game {
       case 'speed_pack': {
         this.abilitySystem.setSpeedPack(Config.ITEM.SPEED_PACK_DURATION)
         this._addFloatingText(this.bird.x, this.bird.y - 30, '减速!', '#1abc9c', 50)
+        break
+      }
+      case 'missile': {
+        // [v1.3.0] 导弹：拾取即发射（弱追踪，怪物优先）
+        this._fireMissile()
         break
       }
     }
@@ -1291,6 +1565,8 @@ class Game {
     }
 
     for (const pipe of this.pipes) pipe.render(ctx)
+    for (const monster of this.monsters) monster.render(ctx)   // [v1.3.0]
+    for (const missile of this.missiles) missile.render(ctx)   // [v1.3.0]
     for (const orb of this.orbs) orb.render(ctx)
     for (const item of this.items) item.render(ctx)   // [v1.1.0]
 
