@@ -19,9 +19,14 @@
  * [v1.5.0] 预留接口（本章只留接口，不实现章节逻辑）：
  *   setBossActive(active)      —— Boss 战期间暂停管道/怪物的生成与距离累计（道具照常）。
  *                                  默认 false，行为与拆分前完全一致。
- *   setChapterModifiers(mods)  —— 章节系统覆写生成参数的注入点：
- *                                  { pipeDistanceScale, monsterSpawnDistanceScale, monsterMaxAlive }
+ *   setChapterModifiers(mods)  —— 章节系统覆写生成参数的注入点（步骤 B 起由 ChapterSystem 注入）：
+ *                                  { pipeDistanceScale, monsterSpawnDistanceScale,
+ *                                    monsterSpawnDistance, monsterMaxAlive,
+ *                                    monsterHpMult, floaterTrackSpeed, batSineAmp, eliteChance }
  *                                  默认 null（不覆写），行为与拆分前完全一致。
+ * [v1.5.0] 精英怪（§5.1）：45s 保护期后每 60s roll 一次（概率见 Config.MONSTER.ELITE_CHANCE，
+ *   章节可覆写），命中则下一只怪物升级为精英（金边/体型×1.3/HP×3，移动参数不变）；
+ *   精英必掉由 Game._onMonsterKilled 调 spawnEliteDrop（导弹权重×2）。
  *
  * 行为等价承诺：纯重构，零数值变化、零节奏变化、零随机数消耗顺序变化
  * （test_gameplay_sim / test_builds_sim 同 seed 输出逐局吻合为验收标准）。
@@ -60,9 +65,14 @@ class SpawnSystem {
     // [v1.5.0] Boss 战开关：true 时暂停管道/怪物生成（预留，默认 false）
     this._bossActive = false
 
-    // [v1.5.0] 章节修正参数注入点（预留，默认 null = 不覆写任何数值）
-    // { pipeDistanceScale: number, monsterSpawnDistanceScale: number, monsterMaxAlive: number }
+    // [v1.5.0] 章节修正参数注入点（默认 null = 不覆写任何数值）
+    // { pipeDistanceScale, monsterSpawnDistanceScale, monsterSpawnDistance,
+    //   monsterMaxAlive, monsterHpMult, floaterTrackSpeed, batSineAmp, eliteChance }
     this._chapterMods = null
+
+    // [v1.5.0] 精英怪 roll 状态（§5.1）：局内状态，随 reset 清零
+    this._eliteTimer = 0      // 距上次 roll 的帧数（45s 保护期后开始计时）
+    this._elitePending = false // true = 下一只怪物升级为精英
   }
 
   // ==================== 生命周期 ====================
@@ -73,7 +83,9 @@ class SpawnSystem {
     this._monsterDistance = 0 // [v1.3.0]
     this.itemSpawnTimer = 0   // [v1.1.1]
     this.supplyLineTimer = 0  // [v1.4.0]
-    // 注：_bossActive / _chapterMods 是跨局配置，不随局内重置清零
+    this._eliteTimer = 0      // [v1.5.0] 精英 roll 计时（局内状态）
+    this._elitePending = false // [v1.5.0]
+    // 注：_bossActive / _chapterMods 是跨局配置，不随局内重置清零（由 ChapterSystem 管理）
   }
 
   // ==================== [v1.5.0] 预留开关（仅接口，无章节逻辑） ====================
@@ -116,6 +128,10 @@ class SpawnSystem {
 
       // [v1.3.0] 怪物生成（45s 新手保护后，同样按滚动距离节奏）
       this.updateMonsterSpawn(scrollSpeed)
+
+      // [v1.5.0] 精英怪 roll（§5.1）：45s 保护期后每 60s 一次，命中则下一只升级为精英；
+      // 首次 roll 在 105s（SPAWN_DELAY+ELITE_ROLL_INTERVAL），此前不消耗随机数
+      this.updateEliteRoll()
     }
 
     // [v1.1.1] 随机道具刷新（独立于管道通过；Boss 战期间照常，供补给）
@@ -181,7 +197,9 @@ class SpawnSystem {
 
   /**
    * [v1.3.0] 怪物生成：45s 新手保护期后，按滚动距离节奏生成，同时最多 MAX_ALIVE 只
-   * [v1.5.0] 章节注入点：monsterSpawnDistanceScale / monsterMaxAlive 可覆写（默认不覆写）
+   * [v1.5.0] 章节注入点：monsterSpawnDistance（绝对值，优先）/ monsterSpawnDistanceScale /
+   *           monsterMaxAlive / monsterHpMult / floaterTrackSpeed / batSineAmp 可覆写（默认不覆写）；
+   *           _elitePending 时本只升级为精英（§5.1）
    * @param {number} scrollSpeed - 当前滚动速度
    */
   updateMonsterSpawn(scrollSpeed) {
@@ -191,17 +209,60 @@ class SpawnSystem {
       ? this._chapterMods.monsterMaxAlive : M.MAX_ALIVE
     if (this._deps.getMonsterCount() >= maxAlive) return
     this._monsterDistance += scrollSpeed
-    const spawnDist = (this._chapterMods && this._chapterMods.monsterSpawnDistanceScale != null)
-      ? M.SPAWN_DISTANCE * this._chapterMods.monsterSpawnDistanceScale : M.SPAWN_DISTANCE
+    // [v1.5.0] 章节覆写：绝对距离优先（§4.4 表为绝对值 450/400/360/320），比例兜底
+    let spawnDist = M.SPAWN_DISTANCE
+    if (this._chapterMods) {
+      if (this._chapterMods.monsterSpawnDistance != null) {
+        spawnDist = this._chapterMods.monsterSpawnDistance
+      } else if (this._chapterMods.monsterSpawnDistanceScale != null) {
+        spawnDist = M.SPAWN_DISTANCE * this._chapterMods.monsterSpawnDistanceScale
+      }
+    }
     if (this._monsterDistance < spawnDist) return
     this._monsterDistance = 0
 
     const type = Math.random() < M.BAT_WEIGHT ? 'bat' : 'floater'
     const groundY = this._deps.screenH - Config.GROUND.HEIGHT
     const y = this.pickMonsterY()
-    const monster = new Monster(this._deps.screenW + 30, y, type, groundY)
+    // [v1.5.0] 生成参数组装：章节修正（HP/追踪/振幅）+ 精英升级；默认路径 opts=null 零变化
+    let opts = null
+    if (this._chapterMods) {
+      opts = {
+        hpMult: this._chapterMods.monsterHpMult,
+        trackSpeed: this._chapterMods.floaterTrackSpeed,
+        sineAmp: this._chapterMods.batSineAmp
+      }
+    }
+    if (this._elitePending) {
+      this._elitePending = false
+      opts = opts || {}
+      opts.elite = true
+    }
+    const monster = new Monster(this._deps.screenW + 30, y, type, groundY, opts)
     this._deps.onSpawnMonster(monster)
-    Logger.info('Monster', '生成怪物', { type: type, x: monster.x, y: monster.y, gameTime: this._deps.getGameTime() })
+    Logger.info('Monster', '生成怪物', {
+      type: type, x: monster.x, y: monster.y, gameTime: this._deps.getGameTime(),
+      elite: monster.elite, hp: monster.hp
+    })
+  }
+
+  /**
+   * [v1.5.0] 精英怪 roll（§5.1）：45s 保护期（与怪物 SPAWN_DELAY 相同）后每 60s roll 一次，
+   * 命中（25%，章节可覆写）则把下一只怪物升级为精英。
+   * 计时暂停语义与怪物生成一致：Boss 战期间（bossActive）不累计（调用点在 bossActive 块内）。
+   */
+  updateEliteRoll() {
+    const M = Config.MONSTER
+    if (this._deps.getGameTime() < M.SPAWN_DELAY) return
+    this._eliteTimer++
+    if (this._eliteTimer < M.ELITE_ROLL_INTERVAL) return
+    this._eliteTimer = 0
+    const chance = (this._chapterMods && this._chapterMods.eliteChance != null)
+      ? this._chapterMods.eliteChance : M.ELITE_CHANCE
+    if (Math.random() < chance) {
+      this._elitePending = true
+      Logger.info('Monster', '精英预警：下一只怪物升级为精英', { gameTime: this._deps.getGameTime(), chance: chance })
+    }
   }
 
   /**
@@ -260,19 +321,35 @@ class SpawnSystem {
     }
   }
 
-  /** [v1.1.0] 道具类型权重随机 */
-  rollItemType() {
+  /**
+   * [v1.1.0] 道具类型权重随机
+   * [v1.5.0] weightMults：按类型加权（精英必掉的导弹权重×2，§5.1）；缺省零变化
+   * @param {Object} [weightMults] - { 类型: 倍率 }
+   */
+  rollItemType(weightMults) {
     const weights = Config.ITEM.TYPE_WEIGHTS
     const types = Object.keys(weights)
     let total = 0
-    for (const t of types) total += weights[t]
+    for (const t of types) total += weights[t] * ((weightMults && weightMults[t]) || 1)
 
     let r = Math.random() * total
     for (const t of types) {
-      r -= weights[t]
+      r -= weights[t] * ((weightMults && weightMults[t]) || 1)
       if (r <= 0) return t
     }
     return types[0]
+  }
+
+  /**
+   * [v1.5.0] 精英怪必掉（§5.1）：在怪物被击杀位置掉落 1 个随机道具（导弹权重×2）。
+   * 与拾荒者掉落独立（可叠加）；由 Game._onMonsterKilled 的 elite 分支调用。
+   * @param {number} x - 掉落位置X（怪物中心）
+   * @param {number} y - 掉落位置Y（怪物中心）
+   */
+  spawnEliteDrop(x, y) {
+    const itemType = this.rollItemType({ missile: Config.MONSTER.ELITE_MISSILE_WEIGHT_MULT })
+    this._deps.onSpawnItem(new Item(x, y, itemType))
+    Logger.info('Item', '精英怪必掉道具', { type: itemType, x: Math.round(x), y: Math.round(y) })
   }
 
   /**

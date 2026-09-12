@@ -21,21 +21,35 @@ class Monster extends Obstacle {
    * @param {number} y - 中心Y
    * @param {string} monsterType - 'bat' | 'floater'
    * @param {number} groundY - 地面顶部Y坐标
+   * @param {Object} [opts] - [v1.5.0] 可选修正：{ elite, hpMult, trackSpeed, sineAmp }
+   *                          elite=精英怪（§5.1 金边+体型×1.3+HP×3，移动参数不变）；
+   *                          hpMult/trackSpeed/sineAmp=章节修正（§4.4，缺省=配置基准，零变化）
    */
-  constructor(x, y, monsterType, groundY) {
+  constructor(x, y, monsterType, groundY, opts) {
     const cfg = monsterType === 'bat' ? Config.MONSTER.BAT : Config.MONSTER.FLOATER
+    // [v1.5.0] 精英怪体型 ×1.3（§5.1）；非精英 Math.round(×1)=原值，零变化
+    const elite = !!(opts && opts.elite)
+    const sizeMult = elite ? Config.MONSTER.ELITE_SIZE_MULT : 1
+    const width = Math.round(cfg.WIDTH * sizeMult)
+    const height = Math.round(cfg.HEIGHT * sizeMult)
     // 复用基类字段：topHeight/gap 映射为怪物包围盒（弹力护盾弹开方向等逻辑可直接复用）
-    super(x, y - cfg.HEIGHT / 2, cfg.HEIGHT, groundY, cfg.WIDTH)
+    super(x, y - height / 2, height, groundY, width)
     this.type = 'monster'
     this.monsterType = monsterType
     this.destructible = true           // [v1.3.0] 可被导弹锁定/摧毁
-    this.hp = cfg.HP
-    this.maxHp = cfg.HP
-    this.height = cfg.HEIGHT
+    this.elite = elite                 // [v1.5.0] 精英标记（渲染金边/击杀奖励判定）
+    // [v1.5.0] HP = 基础 × 精英倍率 × 章节倍率（§4.4 Ch3×1.5 向上取整）；默认全 1，零变化
+    const hpMult = (opts && opts.hpMult) || 1
+    this.hp = Math.ceil(cfg.HP * (elite ? Config.MONSTER.ELITE_HP_MULT : 1) * hpMult)
+    this.maxHp = this.hp
+    this.height = height
     this.y = y                          // 中心Y
     this.baseY = y                      // 蝙蝠正弦基准Y
     this.phase = Math.random() * Math.PI * 2  // 正弦/扇翅相位
     this._targetY = y                   // 浮游怪追踪目标Y（Game 每帧写入小鸟 y）
+    // [v1.5.0] 章节移动参数覆写点（§4.4）；缺省取配置基准值，行为与 v1.4.0 完全一致
+    this._trackSpeed = (opts && opts.trackSpeed) || Config.MONSTER.FLOATER.TRACK_SPEED
+    this._sineAmp = (opts && opts.sineAmp) || Config.MONSTER.BAT.SINE_AMP
     this._syncBox()
   }
 
@@ -66,14 +80,14 @@ class Monster extends Obstacle {
     const M = Config.MONSTER
 
     if (this.monsterType === 'bat') {
-      // 蝙蝠怪：正弦垂直波动
+      // 蝙蝠怪：正弦垂直波动（[v1.5.0] 振幅走实例字段，章节修正可覆写，默认=配置值）
       this.phase += M.BAT.SINE_FREQ
-      this.y = this.baseY + Math.sin(this.phase) * M.BAT.SINE_AMP
+      this.y = this.baseY + Math.sin(this.phase) * this._sineAmp
     } else {
-      // 浮游怪：滞后追踪小鸟 y，速度设上限保证可躲避
+      // 浮游怪：滞后追踪小鸟 y，速度设上限保证可躲避（[v1.5.0] 追踪速度走实例字段）
       this.phase += 0.08  // 触须摆动相位
       const dy = this._targetY - this.y
-      const maxStep = M.FLOATER.TRACK_SPEED
+      const maxStep = this._trackSpeed
       if (Math.abs(dy) > maxStep) {
         this.y += dy > 0 ? maxStep : -maxStep
       } else {
@@ -105,6 +119,12 @@ class Monster extends Obstacle {
       this._renderBat(ctx)
     } else {
       this._renderFloater(ctx)
+    }
+    // [v1.5.0] 精英怪：金色描边（§5.1 高价值目标视觉承诺，区别于普通怪黑描边）
+    if (this.elite) {
+      ctx.strokeStyle = Config.MONSTER.ELITE_BORDER_COLOR
+      ctx.lineWidth = 2.5
+      ctx.strokeRect(this.x - 3, this.y - this.height / 2 - 3, this.width + 6, this.height + 6)
     }
     // HP 指示：多血怪物头顶显示血点（实心=剩余HP）
     if (this.maxHp > 1) {

@@ -22,6 +22,17 @@ class Pipe extends Obstacle {
     this.destructible = true
     this.hp = 1
     this.maxHp = 1
+    // [v1.5.0] 章节换色（§4.2/§4.3）：null = 用 VISUAL 默认色（Ch1 零变化）；
+    // { body, highlight, shadow } = 章节色或转场 lerp 中间色
+    this.colorSet = null
+  }
+
+  /**
+   * [v1.5.0] 设置章节管道色（ChapterSystem 换色/lerp 时由 Game 接线调用）
+   * @param {Object|null} cs - { body, highlight, shadow }；null 恢复默认
+   */
+  setColorSet(cs) {
+    this.colorSet = cs || null
   }
 
   // update() 和 checkCollision() 继承基类默认实现
@@ -46,14 +57,16 @@ class Pipe extends Obstacle {
    */
   _drawPipeBody(ctx, x, y, w, h) {
     const { VISUAL } = Config
+    // [v1.5.0] 章节换色：有 colorSet 用章节色，否则 VISUAL 默认（Ch1 零变化）
+    const cs = this.colorSet
 
-    ctx.fillStyle = VISUAL.PIPE_BODY
+    ctx.fillStyle = cs ? cs.body : VISUAL.PIPE_BODY
     ctx.fillRect(x, y, w, h)
 
-    ctx.fillStyle = VISUAL.PIPE_HIGHLIGHT
+    ctx.fillStyle = cs ? cs.highlight : VISUAL.PIPE_HIGHLIGHT
     ctx.fillRect(x + 3, y, 5, h)
 
-    ctx.fillStyle = VISUAL.PIPE_SHADOW
+    ctx.fillStyle = cs ? cs.shadow : VISUAL.PIPE_SHADOW
     ctx.fillRect(x + w - 8, y, 5, h)
 
     ctx.strokeStyle = VISUAL.PIPE_OUTLINE
@@ -66,16 +79,17 @@ class Pipe extends Obstacle {
    */
   _drawPipeCap(ctx, x, y, isTop) {
     const { PIPE, VISUAL } = Config
+    const cs = this.colorSet  // [v1.5.0] 章节换色
     const capW = this.width + PIPE.CAP_OVERHANG * 2
     const capX = x - PIPE.CAP_OVERHANG
 
-    ctx.fillStyle = VISUAL.PIPE_BODY
+    ctx.fillStyle = cs ? cs.body : VISUAL.PIPE_BODY
     ctx.fillRect(capX, y, capW, PIPE.CAP_HEIGHT)
 
-    ctx.fillStyle = VISUAL.PIPE_HIGHLIGHT
+    ctx.fillStyle = cs ? cs.highlight : VISUAL.PIPE_HIGHLIGHT
     ctx.fillRect(capX + 3, y, 5, PIPE.CAP_HEIGHT)
 
-    ctx.fillStyle = VISUAL.PIPE_SHADOW
+    ctx.fillStyle = cs ? cs.shadow : VISUAL.PIPE_SHADOW
     ctx.fillRect(capX + capW - 8, y, 5, PIPE.CAP_HEIGHT)
 
     ctx.strokeStyle = VISUAL.PIPE_OUTLINE
