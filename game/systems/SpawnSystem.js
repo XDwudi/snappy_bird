@@ -186,6 +186,11 @@ class SpawnSystem {
       const t = Math.min(1, (gameTime - P.SPAWN_RAMP_START) / P.SPAWN_RAMP_TIME)
       dist = Math.round(P.SPAWN_DISTANCE + (P.SPAWN_DISTANCE_MIN - P.SPAWN_DISTANCE) * t)
     }
+    // [v1.5.1] 前期减压：开局间隔 +EARLY_EASE_SPAWN_BONUS，90s 内线性回归 0（叠加制）
+    const easeT = Config.GAME.EARLY_EASE_RAMP_TIME
+    if (gameTime < easeT) {
+      dist += Math.round(Config.GAME.EARLY_EASE_SPAWN_BONUS * (1 - gameTime / easeT))
+    }
     // [v1.5.0] 章节覆写（预留）：仅在显式注入时生效，默认路径零变化
     if (this._chapterMods && this._chapterMods.pipeDistanceScale != null) {
       dist = Math.round(dist * this._chapterMods.pipeDistanceScale)

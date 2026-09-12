@@ -1131,9 +1131,14 @@ class Game {
         (this.gameTime - Config.GAME.GAP_RAMP2_START) / Config.GAME.GAP_RAMP2_TIME, 1
       ) * Config.GAME.GAP_RAMP2_MAX
     }
+    // [v1.5.1] 前期减压：开局间隙 +EARLY_EASE_GAP_BONUS，90s 内线性回归 0（叠加制，
+    // 回归点之后与现值精确无差）
+    const easeT = Config.GAME.EARLY_EASE_RAMP_TIME
+    const ease = this.gameTime < easeT
+      ? Config.GAME.EARLY_EASE_GAP_BONUS * (1 - this.gameTime / easeT) : 0
     // [v1.5.0] 章节难度修正（§4.4 叠加制）：间隙加算（Ch1=+0，精确无差；Ch2=-10）
     return Math.max(
-      base - reduction + this.chapterSystem.getMods().gapAdd,
+      base - reduction + ease + this.chapterSystem.getMods().gapAdd,
       Config.PIPE.MIN_GAP + stats.gapBonus * 0.5
     )
   }
