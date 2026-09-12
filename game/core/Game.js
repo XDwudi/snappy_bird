@@ -17,6 +17,12 @@
  *           移除 N6 跳过按钮（用户要求）。
  * [v1.3.0] 新增：怪物系统（蝙蝠怪/浮游怪，Obstacle 基类扩展+HP/受击接口）、导弹道具（弱追踪，
  *           怪物优先，可炸毁管道）；修复：管道生成从帧数制改为滚动距离制（减速期密度不变）。
+ * [v1.4.0] 能力扩展包批次1（13卡：common×6+uncommon×7）：求生本能(HP=1补盾)、锐利目光(擦边缩碰撞箱)、
+ *           拾荒者(击杀掉道具)、补给线(保底道具独立计时)、连击种子(断连保留带硬刹车)、管感(下一管高亮)、
+ *           导弹挂架(MAX_ALIVE=3+lv挂钩+扇形多发)、铁喙(无敌帧反杀怪物/Boss免疫预留)、经验银行(溢出存取+
+ *           10s生息+HUD小金库)、定风珠(天气过渡期debuff免疫)、镜面护盾(破盾冲击波3s刹车)、
+ *           经验潮汐(天气期经验+25%/级)、羽舞(二段跳后擦边窗口+金色尾迹)。
+ *           §2.6 受击链按表插入：铁喙(最前置,仅怪物)→护盾消耗(镜面冲击波)→HP扣减→求生本能补盾→凤凰。
  * 框架无关——只依赖 Canvas 2D API，不直接调用微信SDK。
  */
 
@@ -98,6 +104,13 @@ class Game {
 
     // [v1.2.1] 教学提示标记（每局只提示一次）
     this._shieldHintShown = false  // "护盾可挡1次碰撞"
+    this._ironBeakHintShown = false // [v1.4.0] 铁喙"无敌中，撞怪反击！"
+
+    // [v1.4.0] 补给线保底道具计时器（与随机生成 itemSpawnTimer 独立）
+    this.supplyLineTimer = 0
+
+    // [v1.4.0] 天气活跃状态跟踪（经验潮汐"潮汐退去"提示用）
+    this._prevWeatherActive = false
 
     // [v1.2.0] 环境属性修饰器（每帧由WeatherSystem更新）
     this._weatherGravityBonus = 0
@@ -174,6 +187,9 @@ class Game {
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
     this._shieldHintShown = false // [v1.2.1] 重置教学提示
+    this._ironBeakHintShown = false // [v1.4.0] 重置铁喙教学提示
+    this.supplyLineTimer = 0      // [v1.4.0] 补给线保底计时
+    this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -193,6 +209,10 @@ class Game {
       if (this.abilitySystem.tryDoubleJump(this.frameCount)) {
         this.bird.doubleJump()
         this._spawnDoubleJumpTrail()  // [v1.2.2] N7 二段跳白色尾迹粒子
+        // [v1.4.0] 羽舞：二段跳后 3s 擦边窗口 +8px/级（不改二段跳位移参数，手感原则）
+        if ((this.abilitySystem.owned.get('feather_dance') || 0) > 0) {
+          this.abilitySystem.featherDanceFrames = Config.ABILITY.FEATHER_DANCE_FRAMES
+        }
       } else {
         this.bird.flap()
       }
@@ -227,7 +247,10 @@ class Game {
     this.damageFlash = 0
     this.phoenixAnim = null       // [v1.2.0] 重置凤凰动画
     this._shieldHintShown = false // [v1.2.1] 重置教学提示
+    this._ironBeakHintShown = false // [v1.4.0]
     this.itemSpawnTimer = 0       // [v1.1.1]
+    this.supplyLineTimer = 0      // [v1.4.0] 补给线保底计时
+    this._prevWeatherActive = false // [v1.4.0] 经验潮汐提示跟踪
 
     this.expSystem.reset()
     this.abilitySystem.reset()
@@ -265,6 +288,16 @@ class Game {
     Logger.info('LevelUp', '选择能力', { id: abilityId, currentLevel: this.abilitySystem.owned.get(abilityId) || 0 })
     this.abilitySystem.selectAbility(abilityId)
     this.abilitySystem.invalidateStats()
+
+    // [v1.4.0] 经验银行：同步银行开关与生息率到 ExpSystem
+    this.expSystem.configureBank(this.abilitySystem.owned.get('exp_bank') || 0)
+
+    // [v1.4.0] 铁喙出场教学浮动文字（只提示一次）
+    if (abilityId === 'iron_beak' && !this._ironBeakHintShown) {
+      this._ironBeakHintShown = true
+      this._addFloatingText(this.bird.x, this.bird.y - 45, '无敌中，撞怪反击！', '#ffaa00', 90)
+    }
+
     this.expSystem.consumeLevelUp()
     this._currentChoices = null
     this._afterUpgrade()
@@ -387,7 +420,14 @@ class Game {
     }
 
     // [v1.2.0] 通知能力系统环境活跃状态
-    this.abilitySystem.setWeatherActive(this.weatherSystem.activeEffects.length > 0)
+    const weatherActiveNow = this.weatherSystem.activeEffects.length > 0
+    this.abilitySystem.setWeatherActive(weatherActiveNow)
+    // [v1.4.0] 经验潮汐：天气结束后浮动文字"潮汐退去"提示（N7 静默教训）
+    if (!weatherActiveNow && this._prevWeatherActive &&
+        (this.abilitySystem.owned.get('exp_tide') || 0) > 0) {
+      this._addFloatingText(this.bird.x, this.bird.y - 35, '潮汐退去', '#7eb8e0', 50)
+    }
+    this._prevWeatherActive = weatherActiveNow
 
     // 能力系统更新
     this.abilitySystem.tickCooldowns()
@@ -429,6 +469,32 @@ class Game {
         this._spawnRandomItem()
       }
       this.itemSpawnTimer = 0
+    }
+
+    // [v1.4.0] 补给线：保底道具计时（与随机生成独立）
+    this._updateSupplyLine()
+
+    // [v1.4.0] 经验银行生息：对齐天气 10s 检查节奏（WEATHER.CHECK_INTERVAL），不新增逐帧计时器
+    if (this.expSystem.bankEnabled && this.gameTime % Config.WEATHER.CHECK_INTERVAL === 0) {
+      const interest = this.expSystem.tickBankInterest()
+      if (interest > 0) {
+        this._addFloatingText(this.bird.x, this.bird.y - 35, `银行生息 +${interest}`, '#ffd700', 45)
+      }
+    }
+
+    // [v1.4.0] 羽舞：buff 期间小鸟尾迹变金色（复用二段跳尾迹粒子通道）
+    if (this.abilitySystem.featherDanceFrames > 0 && this.frameCount % 3 === 0) {
+      this.abilityEffects.push({
+        kind: 'dot',
+        x: this.bird.x - 10,
+        y: this.bird.y + 4,
+        vx: -1 - Math.random() * 0.5,
+        vy: 0.3 + Math.random() * 0.5,
+        life: 18,
+        maxLife: 18,
+        size: 2,
+        color: '255, 215, 0'  // 金色
+      })
     }
 
     // 主动技能预判
@@ -669,10 +735,56 @@ class Game {
           size: this.bird.width * 0.6,  // 起始半径
           color: '100, 200, 255'        // 蓝色
         })
+      } else if (ev.type === 'survivor') {
+        // [v1.4.0] 求生本能：HP=1 补盾提示（特效环已由 addShieldLayer 的 shield 事件提供）
+        this._addFloatingText(this.bird.x, this.bird.y - 40, '求生本能!', '#ffd700', 50)
+      } else if (ev.type === 'mirror_shock') {
+        // [v1.4.0] 镜面护盾：破盾冲击波 AoE 结算
+        this._triggerMirrorShock()
       }
     }
 
     fx.length = 0
+  }
+
+  /**
+   * [v1.4.0] 镜面护盾冲击波：半径 (100+40*(lv-1))px 内怪物受 1 伤害
+   * 对 Boss 无效（isBoss 分支）；触发频率由 AbilitySystem.mirrorShockCD(3s) 硬刹车
+   */
+  _triggerMirrorShock() {
+    const lv = this.abilitySystem.owned.get('mirror_shield') || 0
+    if (lv <= 0) return
+    const radius = Config.SHIELD.MIRROR_SHOCK_RADIUS_BASE +
+      Config.SHIELD.MIRROR_SHOCK_RADIUS_PER_LV * (lv - 1)
+    const bx = this.bird.x
+    const by = this.bird.y
+
+    let hits = 0
+    for (const m of this.monsters) {
+      if (m.hp <= 0 || m.isBoss) continue
+      const dx = m.x + m.width / 2 - bx
+      const dy = m.y - by
+      if (dx * dx + dy * dy <= radius * radius) {
+        m.takeDamage(1)
+        hits++
+        if (m.hp <= 0) this._onMonsterKilled(m)  // 尸体由 _updateMonsters 回收
+      }
+    }
+
+    // 冲击波视觉：青白色扩散环
+    this.abilityEffects.push({
+      kind: 'ring',
+      x: bx,
+      y: by,
+      vx: 0,
+      vy: 0,
+      life: 24,
+      maxLife: 24,
+      size: radius * 0.4,
+      color: '200, 240, 255'
+    })
+    this._addFloatingText(bx, by - 35, '镜面冲击!', '#c8f0ff', 40)
+    Logger.info('Shield', '镜面冲击波结算', { radius: radius, hits: hits })
   }
 
   /**
@@ -869,11 +981,20 @@ class Game {
 
   /**
    * [v1.3.0] 怪物被击杀：爆炸粒子 + 击杀经验（浮动文字 +10）
+   * [v1.4.0] 拾荒者：击杀怪物 20%/级 掉随机道具（权重沿用 TYPE_WEIGHTS）
    */
   _onMonsterKilled(monster) {
     this._spawnExplosion(monster.x + monster.width / 2, monster.y, '255, 120, 40', 12)
     const stats = this.abilitySystem.getStats()
     this._gainExp(Config.MONSTER.KILL_EXP, 'monster_kill', stats)
+
+    // [v1.4.0] 拾荒者掉落（同屏怪物≤2 + 生成距离450px 天然限速，无需额外刹车）
+    const scavLv = this.abilitySystem.owned.get('scavenger') || 0
+    if (scavLv > 0 && Math.random() < Config.MONSTER.SCAVENGER_CHANCE_PER_LV * scavLv) {
+      this._spawnRandomItem()
+      Logger.info('Item', '拾荒者掉落道具', { lv: scavLv })
+    }
+
     Logger.info('Monster', '击杀怪物', { type: monster.monsterType, exp: Config.MONSTER.KILL_EXP })
   }
 
@@ -881,14 +1002,34 @@ class Game {
 
   /**
    * [v1.3.0] 拾取导弹道具：从小鸟位置发射 1 枚导弹（拾取即触发）
+   * [v1.4.0] 导弹挂架（missile_rack）：每次发射 +lv 枚扇形（"发射事件"级拦截，不区分导弹来源）
+   * 实现坑已规避：MAX_ALIVE 先与挂架等级挂钩（3+lv），否则扇形瞬间占满上限、满级卡无效
    */
   _fireMissile() {
-    if (this.missiles.length >= Config.MISSILE.MAX_ALIVE) return
+    const rackLv = this.abilitySystem.owned.get('missile_rack') || 0
+    const maxAlive = Config.MISSILE.MAX_ALIVE + rackLv  // [v1.4.0] 上限与挂架等级挂钩
+    const count = 1 + rackLv
     const target = this._pickMissileTarget()
-    const missile = new Missile(this.bird.x + this.bird.width / 2, this.bird.y, target)
-    this.missiles.push(missile)
-    this._addFloatingText(this.bird.x, this.bird.y - 30, '🚀 发射!', '#e67e22', 45)
+
+    let fired = 0
+    for (let i = 0; i < count; i++) {
+      if (this.missiles.length >= maxAlive) break
+      // 扇形角度：以水平向右为中心对称展开，步长 RACK_FAN_STEP
+      const angleOffset = (i - rackLv / 2) * Config.MISSILE.RACK_FAN_STEP
+      const missile = new Missile(this.bird.x + this.bird.width / 2, this.bird.y, target, angleOffset)
+      this.missiles.push(missile)
+      fired++
+    }
+    if (fired <= 0) return
+
+    this._addFloatingText(
+      this.bird.x, this.bird.y - 30,
+      fired > 1 ? `🚀 发射x${fired}!` : '🚀 发射!',
+      '#e67e22', 45
+    )
     Logger.info('Missile', '发射导弹', {
+      count: fired,
+      rackLv: rackLv,
       targetType: target ? target.type : 'none',
       x: Math.round(this.bird.x),
       y: Math.round(this.bird.y)
@@ -1051,6 +1192,24 @@ class Game {
     this.items.push(new Item(itemX, itemY, itemType))
   }
 
+  /**
+   * [v1.4.0] 补给线（supply_line）：每 (75-15*(lv-1))s 保底生成 1 个随机道具
+   * 保底计时与随机生成（itemSpawnTimer / 过管25%）完全独立；
+   * 权重沿用 _rollItemType（TYPE_WEIGHTS，不含导弹倾斜），防"保底导弹流"变最优解
+   */
+  _updateSupplyLine() {
+    const lv = this.abilitySystem.owned.get('supply_line') || 0
+    if (lv <= 0) return
+    this.supplyLineTimer++
+    const interval = (Config.ITEM.SUPPLY_LINE_BASE_SEC -
+      Config.ITEM.SUPPLY_LINE_REDUCTION_SEC * (lv - 1)) * 60
+    if (this.supplyLineTimer >= interval) {
+      this.supplyLineTimer = 0
+      this._spawnRandomItem()
+      Logger.info('Item', '补给线保底道具', { lv: lv, intervalSec: interval / 60 })
+    }
+  }
+
   // ==================== 通过管道处理 ====================
 
   _onPipePass(pipe) {
@@ -1106,12 +1265,35 @@ class Game {
     const distToBottomPipe = pipe.bottomY - birdBottom
     const minDist = Math.min(distToTopPipe, distToBottomPipe)
 
-    if (minDist < Config.EXP.NEAR_MISS_DISTANCE && minDist > 0) {
+    // [v1.4.0] 羽舞：二段跳后 3s 内擦边窗口 +8px/级
+    const danceLv = this.abilitySystem.owned.get('feather_dance') || 0
+    const danceBonus = (danceLv > 0 && this.abilitySystem.featherDanceFrames > 0)
+      ? Config.ABILITY.FEATHER_DANCE_NEAR_MISS_BONUS * danceLv : 0
+
+    if (minDist < Config.EXP.NEAR_MISS_DISTANCE + danceBonus && minDist > 0) {
       pipe.nearMissTriggered = true  // [v1.1.5] 防止同一管道重复触发
       const stats = this.abilitySystem.getStats()
       this._gainExp(Config.EXP.NEAR_MISS_EXP, 'near_miss', stats)
       this.score += Config.EXP.SCORE_NEAR_MISS
       if (this.onScoreChange) this.onScoreChange(this.score)
+
+      // [v1.4.0] 锐利目光：擦边后 60 帧碰撞箱 -15%/级（只改判定不改手感；
+      // 生效时小鸟描边金色一闪——复用擦边粒子通道，否则玩家无感知，N7 教训）
+      const edgeLv = this.abilitySystem.owned.get('edge_focus') || 0
+      if (edgeLv > 0) {
+        this.abilitySystem.edgeFocusFrames = Config.ABILITY.EDGE_FOCUS_FRAMES
+        this.abilityEffects.push({
+          kind: 'ring',
+          x: this.bird.x,
+          y: this.bird.y,
+          vx: 0,
+          vy: 0,
+          life: 18,
+          maxLife: 18,
+          size: this.bird.width * 0.5,
+          color: '255, 215, 0'  // 金色
+        })
+      }
 
       // [v1.1.4] 增强擦边特效：多环扩散 + 粒子爆发 + 闪光
       const effect = {
@@ -1167,6 +1349,16 @@ class Game {
     const text = doubled ? `+${exp} EXP x2!` : `+${exp} EXP`
     const color = doubled ? '#9b59b6' : '#ffd700'
     this._addFloatingText(this.bird.x, this.bird.y - 30, text, color, 50)
+
+    // [v1.4.0] 经验银行存取提示（N7：数值变动必须可见）
+    if (this.expSystem.lastBankDeposit > 0) {
+      this._addFloatingText(this.bird.x, this.bird.y - 48, `存入银行 +${this.expSystem.lastBankDeposit}`, '#f1c40f', 50)
+      this.expSystem.lastBankDeposit = 0
+    }
+    if (this.expSystem.lastBankWithdraw > 0) {
+      this._addFloatingText(this.bird.x, this.bird.y - 48, `银行取出 +${this.expSystem.lastBankWithdraw}!`, '#f39c12', 60)
+      this.expSystem.lastBankWithdraw = 0
+    }
 
     Logger.info('Exp', '获得经验', {
       source: source,
@@ -1259,10 +1451,29 @@ class Game {
    * 碰撞事件处理：无敌 > 时间扭曲 > 统一护盾(弹力护盾优先) > 扣血 > 凤凰 > 死亡
    * [v1.1.5] 统一护盾系统：shieldLayers > 0时消耗一层，
    *           若拥有弹力护盾则弹开，否则仅抵挡。
-   * @param {Object} [pipe] - 碰撞的管道对象（用于判断弹开方向），地面/天花板碰撞时不传
+   * [v1.4.0] §2.6 受击链新节点：铁喙（怪物碰撞的无敌帧反杀分支，最前置，仅怪物）；
+   *           镜面护盾（护盾层消耗时冲击波，挂在 consumeShield 内）；
+   *           求生本能（HP 扣减后补盾，挂在 takeDamage 内，凤凰之前）
+   * @param {Object} [pipe] - 碰撞的管道/怪物对象（用于判断弹开方向），地面/天花板碰撞时不传
    * @returns {boolean} true=游戏结束, false=继续
    */
   _handleCollision(pipe) {
+    // [v1.4.0] 铁喙：受击无敌帧期间撞怪反杀且免伤（对管道无效；对 Boss 免疫，isBoss 分支预留）
+    if (pipe && pipe.type === 'monster' && !pipe.isBoss &&
+        this.abilitySystem.invincibleFrames > 0) {
+      const beakLv = this.abilitySystem.owned.get('iron_beak') || 0
+      if (beakLv > 0) {
+        pipe.takeDamage(beakLv)
+        this._addFloatingText(pipe.x + pipe.width / 2, pipe.y - 20, '铁喙反杀!', '#ffaa00', 40)
+        Logger.info('Monster', '铁喙反杀', { type: pipe.monsterType, damage: beakLv, hp: pipe.hp })
+        if (pipe.hp <= 0) {
+          this._onMonsterKilled(pipe)  // 尸体由 _updateMonsters 的 hp<=0 分支回收
+        }
+        this.bird.invincibleBlink = 20
+        return false  // 免伤
+      }
+    }
+
     // 无敌状态
     if (this.abilitySystem.invincibleFrames > 0) {
       Logger.debug('Collision', '无敌中，忽略碰撞', { invincibleFrames: this.abilitySystem.invincibleFrames })
@@ -1565,6 +1776,7 @@ class Game {
     }
 
     for (const pipe of this.pipes) pipe.render(ctx)
+    this._drawPipeSense()   // [v1.4.0] 管感：高亮下一根管道间隙
     for (const monster of this.monsters) monster.render(ctx)   // [v1.3.0]
     for (const missile of this.missiles) missile.render(ctx)   // [v1.3.0]
     for (const orb of this.orbs) orb.render(ctx)
@@ -1646,6 +1858,50 @@ class Game {
     ctx.strokeStyle = `rgba(26, 188, 156, ${alpha})`
     ctx.lineWidth = 6
     ctx.strokeRect(3, 3, this.screenW - 6, this.screenH - 6)
+  }
+
+  /**
+   * [v1.4.0] 管感（pipe_sense）：高亮下一根管道间隙
+   * Lv1 间隙金色轮廓；Lv2 追加间隙中心 ±30px 半透明安全区渐亮带。
+   * 高亮必须淡（alpha ≤0.35，取 SENSE_ALPHA=0.3），浓了会遮蔽擦边金环的视觉优先级；
+   * 安全区宽度固定 ±30px，不随等级扩大（避免变成"自动驾驶线"）。
+   * 纯信息卡、零数值。
+   */
+  _drawPipeSense() {
+    const lv = this.abilitySystem.owned.get('pipe_sense') || 0
+    if (lv <= 0) return
+
+    // 下一根管道 = 小鸟前方最近（最紧迫）的管道
+    const bird = this.bird
+    let next = null
+    for (const p of this.pipes) {
+      if (p.x + p.width > bird.x - bird.collisionWidth / 2) {
+        if (!next || p.x < next.x) next = p
+      }
+    }
+    if (!next) return
+
+    const ctx = this.ctx
+    const alpha = Config.PIPE.SENSE_ALPHA
+    const gapTop = next.topHeight
+    const gapH = next.gap
+
+    // Lv1/Lv2 共有：间隙金色轮廓
+    ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
+    ctx.lineWidth = 2
+    ctx.strokeRect(next.x, gapTop, next.width, gapH)
+
+    // Lv2 追加：间隙中心 ±30px 渐亮安全区
+    if (lv >= 2) {
+      const half = Config.PIPE.SENSE_ZONE_HALF
+      const centerY = gapTop + gapH / 2
+      const grad = ctx.createLinearGradient(0, centerY - half, 0, centerY + half)
+      grad.addColorStop(0, 'rgba(255, 215, 0, 0)')
+      grad.addColorStop(0.5, `rgba(255, 215, 0, ${alpha})`)
+      grad.addColorStop(1, 'rgba(255, 215, 0, 0)')
+      ctx.fillStyle = grad
+      ctx.fillRect(next.x, centerY - half, next.width, half * 2)
+    }
   }
 
   // [v1.1.4] 增强擦边特效：多环扩散 + 粒子爆发 + 中心闪光
@@ -1910,6 +2166,17 @@ class Game {
     ctx.strokeStyle = '#000000'
     ctx.lineWidth = 1
     ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4)
+
+    // ----- [v1.4.0] 经验银行小金库（经验条右侧：图标 + 余额数字）-----
+    if (this.expSystem.bankEnabled) {
+      ctx.font = '13px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('🏦', barX + barW + 8, barY + barH / 2)
+      ctx.font = 'bold 10px monospace'
+      ctx.fillStyle = VISUAL.EXP_BAR_FILL
+      ctx.fillText(String(Math.floor(this.expSystem.bankBalance)), barX + barW + 24, barY + barH / 2)
+    }
 
     // ----- 连击计数 -----
     const comboLv = this.abilitySystem.owned.get('combo_heart') || 0

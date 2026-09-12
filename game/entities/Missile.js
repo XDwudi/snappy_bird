@@ -15,12 +15,13 @@ class Missile {
    * @param {number} x - 发射点X（小鸟头部）
    * @param {number} y - 发射点Y
    * @param {Object} [target] - 追踪目标（Monster 或 destructible Pipe），可空
+   * @param {number} [angle] - [v1.4.0] 初始飞行方向（rad，导弹挂架扇形多发用），默认 0=水平向右
    */
-  constructor(x, y, target) {
+  constructor(x, y, target, angle) {
     this.x = x
     this.y = y
     this.target = target || null
-    this.angle = 0              // 当前飞行方向（rad，0=水平向右）
+    this.angle = angle || 0     // 当前飞行方向（rad，0=水平向右）
     this.trail = []             // 拖尾点（定长数组，上限 TRAIL_LENGTH）
     this.type = 'missile'
     this._flamePhase = Math.random() * Math.PI * 2  // 尾焰闪烁相位
