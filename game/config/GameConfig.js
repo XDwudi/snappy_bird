@@ -36,7 +36,11 @@ module.exports = {
     CAP_HEIGHT: 26,         // 管道帽高度
     CAP_OVERHANG: 4,        // 帽突出宽度
     MIN_TOP: 50,            // 顶部管道最小高度
-    MIN_BOTTOM: 50          // 底部管道最小高度
+    MIN_BOTTOM: 50,         // 底部管道最小高度
+
+    // [v1.4.0] 管感（pipe_sense）：高亮下一根管道间隙
+    SENSE_ALPHA: 0.3,       // 高亮透明度上限（≤0.35，浓了会遮蔽擦边金环）
+    SENSE_ZONE_HALF: 30     // Lv2 安全区半宽（px，固定不随等级扩大，防"自动驾驶线"）
   },
 
   // ==================== 地面参数 ====================
@@ -115,7 +119,14 @@ module.exports = {
     ORB_SPAWN_CHANCE: 0.7, // 通过管道时生成经验球的概率
     SCORE_PER_ORB: 2,      // 拾取经验球额外得分
     SCORE_NEAR_MISS: 3,    // 擦边额外得分
-    SCORE_SURVIVAL_INTERVAL: 300 // 存活时间得分间隔(帧)，300=5s
+    SCORE_SURVIVAL_INTERVAL: 300, // 存活时间得分间隔(帧)，300=5s
+
+    // [v1.4.0] 经验银行（exp_bank）：溢出经验存银行生息，升级时全额取出
+    BANK: {
+      DIRECT_CAP_RATIO: 1.5,   // 单次获得经验直接入池上限 = 当前升级所需 ×1.5，超出部分入银行
+      CAP_RATIO: 2,            // 银行余额上限 = 当前升级所需 ×2，超限部分自动入池（防囤积刹车①）
+      INTEREST_PER_LV: 0.05    // 每 10s 生息 5%/级（生息节奏对齐 WEATHER.CHECK_INTERVAL，不新增逐帧计时器）
+    }
   },
 
   // ==================== [v1.1.0] HP血条系统 ====================
@@ -137,7 +148,12 @@ module.exports = {
     BOUNCE_RECOVER_MIN: 5,       // 弹力护盾恢复CD下限(秒)
     BOUNCE_VEL_UP: 0.6,          // 弹力护盾向上反弹力度系数
     BOUNCE_VEL_DOWN: 0.4,        // 弹力护盾向下反弹力度系数
-    SHRINK_ANIM_FRAMES: 30       // 缩小射线管道缩回动画帧数
+    SHRINK_ANIM_FRAMES: 30,      // 缩小射线管道缩回动画帧数
+
+    // [v1.4.0] 镜面护盾（mirror_shield）：护盾被击破时冲击波
+    MIRROR_SHOCK_RADIUS_BASE: 100,  // 冲击波半径基础值(px)
+    MIRROR_SHOCK_RADIUS_PER_LV: 40, // 每级半径增量(px)
+    MIRROR_SHOCK_CD: 180            // 冲击波触发CD(帧)=3s，防"反复破盾刷波"回路（硬刹车）
   },
 
   // ==================== [v1.1.0] 道具系统 ====================
@@ -167,6 +183,11 @@ module.exports = {
     RANDOM_SPAWN_INTERVAL: 480, // 随机道具生成间隔(帧), 480≈8s
     RANDOM_SPAWN_CHANCE: 0.6,   // 到间隔时生成道具的概率
 
+    // [v1.4.0] 补给线（supply_line）：保底道具计时，与随机生成独立；
+    // 权重沿用 TYPE_WEIGHTS（不含导弹倾斜），防"保底导弹流"变最优解
+    SUPPLY_LINE_BASE_SEC: 75,      // 保底间隔基础值(秒)
+    SUPPLY_LINE_REDUCTION_SEC: 15, // 每级间隔缩减(秒)
+
     // 道具颜色
     COLORS: {
       exp_pack: '#9b59b6',
@@ -187,6 +208,10 @@ module.exports = {
     MIN_Y_MARGIN: 40,      // y 取值上下边距
     BAT_WEIGHT: 0.5,       // 蝙蝠怪生成权重（其余为浮游怪）
     KILL_EXP: 10,          // 击杀经验（浮动文字 +10）
+
+    // [v1.4.0] 拾荒者（scavenger）：击杀怪物 20%/级 掉随机道具
+    // 同屏怪物≤2 + 生成距离450px 天然限速，无需额外刹车
+    SCAVENGER_CHANCE_PER_LV: 0.2,
 
     // 蝙蝠怪：正弦垂直波动
     BAT: {
@@ -212,7 +237,10 @@ module.exports = {
     TURN_RATE: 0.07,       // 弱追踪：每帧最大转向角（rad）
     DAMAGE: 1,             // 命中伤害
     AOE_RADIUS: 0,         // 爆炸 AoE 半径（px，0=无 AoE）
-    MAX_ALIVE: 3,          // 同时在屏导弹上限
+    MAX_ALIVE: 3,          // 同时在屏导弹上限（基础值）
+    // [v1.4.0] 导弹挂架（missile_rack）：MAX_ALIVE 与挂架等级挂钩（3+lv，Game._fireMissile 结算），
+    // 否则扇形多发瞬间占满上限、满级卡实际无效（设计表标注的隐蔽实现坑）
+    RACK_FAN_STEP: 0.25,   // 挂架扇形多发相邻角度步长（rad）
     WIDTH: 16,             // 弹头长度
     HEIGHT: 8,             // 弹头宽度
     TRAIL_LENGTH: 10       // 拖尾点数
@@ -242,6 +270,18 @@ module.exports = {
     // [v1.2.1] 二段跳触发窗口（帧）：上次拍翅后 3~18 帧（≈50~300ms）内再次拍翅触发
     DOUBLE_JUMP_MIN_WINDOW: 3,
     DOUBLE_JUMP_MAX_WINDOW: 18,
+
+    // [v1.4.0] 锐利目光（edge_focus）：擦边后 60 帧碰撞箱 -15%/级（与灵巧乘算，0.3 下限钳制兜底）
+    EDGE_FOCUS_FRAMES: 60,
+    EDGE_FOCUS_SHRINK_PER_LV: 0.15,
+
+    // [v1.4.0] 羽舞（feather_dance）：二段跳后 3s 擦边窗口 +8px/级（不改二段跳位移参数，手感原则）
+    FEATHER_DANCE_FRAMES: 180,
+    FEATHER_DANCE_NEAR_MISS_BONUS: 8,
+
+    // [v1.4.0] 连击种子（combo_seed）：断连击保留 lv 层；
+    // 硬刹车：持连击之心时保留 ≤ 无敌阈值-1（防"保留3层+阈值2"变相永动，N1 教训），未持时上限 4
+    COMBO_SEED_NO_HEART_CAP: 4,
 
     // [v1.1.3] 新能力权重倍率
     NEW_ABILITY_BONUS: 1.3,  // 未拥有能力权重额外乘数
@@ -302,6 +342,11 @@ module.exports = {
     // [v1.2.2] N5 终局加压：240s后并发上限提升为3
     LATE_GAME_TIME: 14400,     // 终局起点（帧）=240s
     MAX_SIMULTANEOUS_LATE: 3,  // 终局最多同时3种效果
+
+    // [v1.4.0] 定风珠（steady_charm）：天气开始/结束 (3+3*lv)s 内免疫其 debuff；
+    // 只免疫负面部分（御风者等增益保留），免疫判定在各 debuff 应用点而非总开关
+    STEADY_CHARM_BASE_SEC: 3,
+    STEADY_CHARM_PER_LV_SEC: 3,
 
     WIND: {
       MIN_DURATION: 900,       // 15s

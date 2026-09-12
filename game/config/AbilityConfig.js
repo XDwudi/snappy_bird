@@ -1,10 +1,13 @@
 /**
- * AbilityConfig.js - 能力数据配置 [v1.2.0]
+ * AbilityConfig.js - 能力数据配置 [v1.4.0]
  *
- * 共28个能力：被动11 + 主动8 + 特殊9
+ * 共41个能力：28(旧) + 13([v1.4.0]批次1：common×6 + uncommon×7)
  * v1.1.0变更：提升15个旧能力等级上限 + 新增7个能力
  * v1.1.3变更：为每个能力添加稀有度(rarity)
  * v1.2.0变更：新增6个环境相关能力
+ * v1.4.0变更：批次1新增13卡（求生本能/锐利目光/拾荒者/补给线/连击种子/管感/
+ *             导弹挂架/铁喙/经验银行/定风珠/镜面护盾/经验潮汐/羽舞），
+ *             effectText 与开发方案_v1.4.0 §2.1/§2.2 逐卡一致；rare/epic 为批次2
  */
 
 const ABILITY = require('./GameConfig.js').ABILITY
@@ -323,6 +326,153 @@ const Abilities = [
     rarity: 'epic',
     maxLevel: 3,
     effectText: (lv) => `环境期间全属性 +${20 * lv}%`
+  },
+
+  // ==================== [v1.4.0] 能力扩展包·批次1：common ×6 ====================
+  // C1 求生本能：HP=1 低保卡，走统一 addShieldLayer 上限钳制（§2.6：HP扣减后→补盾→凤凰）
+  {
+    id: 'survivor_instinct',
+    name: '求生本能',
+    icon: '🐣',
+    desc: 'HP=1时获得护盾',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'common',
+    maxLevel: 2,
+    effectText: (lv) => `HP=1时获得1层护盾（每局${lv}次）`
+  },
+  // C2 锐利目光：擦边流 common 入口，只改判定不改手感（与灵巧乘算，0.3 下限钳制）
+  {
+    id: 'edge_focus',
+    name: '锐利目光',
+    icon: '👁️',
+    desc: '擦边后缩小碰撞箱',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'common',
+    maxLevel: 3,
+    effectText: (lv) => `擦边后60帧碰撞箱-${15 * lv}%`
+  },
+  // C3 拾荒者：怪物资源化，击杀掉落权重沿用 ITEM.TYPE_WEIGHTS
+  {
+    id: 'scavenger',
+    name: '拾荒者',
+    icon: '🧺',
+    desc: '击杀怪物掉道具',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'common',
+    maxLevel: 3,
+    effectText: (lv) => `击杀怪物${20 * lv}%掉随机道具`
+  },
+  // C4 补给线：道具荒救济，保底计时与随机生成独立，权重不倾斜导弹
+  {
+    id: 'supply_line',
+    name: '补给线',
+    icon: '📦',
+    desc: '定期保底生成道具',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'common',
+    maxLevel: 2,
+    effectText: (lv) => `每${75 - 15 * (lv - 1)}s保底生成1个随机道具`
+  },
+  // C5 连击种子：连击流容错卡，硬刹车=保留层数 ≤ 无敌阈值-1
+  {
+    id: 'combo_seed',
+    name: '连击种子',
+    icon: '🌱',
+    desc: '断连击保留层数',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'common',
+    maxLevel: 3,
+    effectText: (lv) => `断连击时保留${lv}层（不超过无敌阈值-1）`
+  },
+  // C6 管感：纯信息卡零数值，高亮 alpha ≤0.35，Lv2 安全区 ±30px 固定
+  {
+    id: 'pipe_sense',
+    name: '管感',
+    icon: '🧭',
+    desc: '高亮下一根管道',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'common',
+    maxLevel: 2,
+    effectText: (lv) => `高亮下一根管道间隙${lv === 1 ? '轮廓' : '轮廓+安全区'}`
+  },
+
+  // ==================== [v1.4.0] 能力扩展包·批次1：uncommon ×7 ====================
+  // U1 导弹挂架：MAX_ALIVE 先与等级挂钩（3+lv）再做扇形多发，否则满级卡无效
+  {
+    id: 'missile_rack',
+    name: '导弹挂架',
+    icon: '🎒',
+    desc: '导弹扇形多发',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 3,
+    effectText: (lv) => `每次发射导弹+${lv}枚（扇形）`
+  },
+  // U2 铁喙：无敌帧从防御窗口变进攻窗口，对 Boss 免疫（isBoss 分支预留）
+  {
+    id: 'iron_beak',
+    name: '铁喙',
+    icon: '🦅',
+    desc: '无敌期撞怪反杀',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 2,
+    effectText: (lv) => `无敌期碰撞怪物：反杀且免伤（伤害${lv}）`
+  },
+  // U3 经验银行：双刹车（上限=升级所需×2、升级时全额转入）；生息对齐天气 10s 检查节奏
+  {
+    id: 'exp_bank',
+    name: '经验银行',
+    icon: '🏦',
+    desc: '溢出经验存入银行生息',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 3,
+    effectText: (lv) => `溢出经验入银行，每10s生息${5 * lv}%`
+  },
+  // U4 定风珠：只免疫负面 debuff（增益保留），免疫判定在 debuff 应用点
+  {
+    id: 'steady_charm',
+    name: '定风珠',
+    icon: '⚓',
+    desc: '天气过渡期免疫debuff',
+    category: ABILITY.CATEGORY.PASSIVE,
+    rarity: 'uncommon',
+    maxLevel: 2,
+    effectText: (lv) => `天气开始/结束${3 + 3 * lv}s内免疫其debuff`
+  },
+  // U5 镜面护盾：破盾反打，每 3s 最多触发 1 次（防刷波回路），对 Boss 无效
+  {
+    id: 'mirror_shield',
+    name: '镜面护盾',
+    icon: '🪞',
+    desc: '破盾触发冲击波',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 2,
+    effectText: (lv) => `护盾被击破时冲击波：${100 + 40 * (lv - 1)}px内怪物受1伤害`
+  },
+  // U6 经验潮汐：只加经验不加战力（与风暴之子错位），天气结束提示"潮汐退去"
+  {
+    id: 'exp_tide',
+    name: '经验潮汐',
+    icon: '🌊',
+    desc: '天气期间经验加成',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 3,
+    effectText: (lv) => `天气期间经验获取+${25 * lv}%`
+  },
+  // U7 羽舞：二段跳接入擦边流，不改二段跳位移参数，buff 期尾迹金色
+  {
+    id: 'feather_dance',
+    name: '羽舞',
+    icon: '💃',
+    desc: '二段跳后擦边窗口扩大',
+    category: ABILITY.CATEGORY.SPECIAL,
+    rarity: 'uncommon',
+    maxLevel: 3,
+    effectText: (lv) => `二段跳后3s内擦边窗口+${8 * lv}px`
   }
 ]
 
