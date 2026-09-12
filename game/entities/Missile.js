@@ -85,7 +85,9 @@ class Missile {
    */
   hitTest(ob) {
     const M = Config.MISSILE
-    if (ob.type === 'monster') {
+    // [v1.5.0] isBoss 并入中心盒分支：Boss 与 Monster 同为"左缘 x + 中心 y"约定；
+    // 走管道分支会用 topHeight/bottomY 间隙判定导致永远打不中本体（管道分支是"打管身避间隙"语义）
+    if (ob.type === 'monster' || ob.isBoss) {
       return Math.abs(this.x - (ob.x + ob.width / 2)) < ob.width / 2 + M.WIDTH / 2 &&
              Math.abs(this.y - ob.y) < ob.height / 2 + M.HEIGHT / 2
     }

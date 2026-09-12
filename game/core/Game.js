@@ -1217,15 +1217,19 @@ class Game {
     const frozen = this.abilitySystem.timeCrystalFreezeFrames > 0  // 时之晶：怪物/弹幕冻结（卡面承诺）
 
     // 羽刃弹幕：命中即消（走统一受击链；被格挡/护盾/无敌减免同样消耗弹幕）
-    for (let i = this.feathers.length - 1; i >= 0; i--) {
-      const f = this.feathers[i]
+    // 局部引用快照：受击链可能触发战败/胜利并整体重置 this.feathers（新数组），
+    // 继续遍历旧快照安全（命中 splice 只影响快照，新数组从此为空）
+    const feathers = this.feathers
+    for (let i = feathers.length - 1; i >= 0; i--) {
+      const f = feathers[i]
       if (!frozen) f.update(timeScale)
       if (f.checkCollision(this.bird)) {
-        this.feathers.splice(i, 1)
+        feathers.splice(i, 1)
         if (this._handleCollision(f)) return true
+        if (this.feathers !== feathers) break  // 战败/胜利已清场，放弃旧快照遍历
         continue
       }
-      if (f.isOffscreen(this.screenW, this.screenH)) this.feathers.splice(i, 1)
+      if (f.isOffscreen(this.screenW, this.screenH)) feathers.splice(i, 1)
     }
 
     // Boss 本体（dying 也继续 update 做坠落演出；leaving 同理加速离场）
